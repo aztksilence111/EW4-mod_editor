@@ -1,7 +1,7 @@
 {
   "name": "ew4-rewrite-mod-editor",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "scripts": {
     "setup": "node tools/setup.mjs",
@@ -11,7 +11,15 @@
     "build": "npm run typecheck && vite build",
     "build:bridge": "dotnet build bridge/Ew4.Editor.csproj -v:q",
     "test": "node --test tests/*.test.mjs",
-    "test:integration": "node tests/integration.mjs",
+    "test:runtime": "dotnet run --project tests/runtime/RuntimeCompatibility.csproj -- . && node tests/runtime.mjs",
+    "test:structural": "node tests/structural.mjs",
+    "test:deployment": "node tests/deployment.mjs",
+    "test:integration": "node tests/integration.mjs && npm run test:import && npm run test:skills && npm run test:resources && npm run test:structural && npm run test:deployment",
+    "test:import": "node tests/import.mjs",
+    "test:skills": "node tests/skills.mjs",
+    "test:resources": "node tests/resources.mjs",
+    "test:browser:import": "node tests/browser-import.mjs",
+    "test:browser:structural": "node tests/browser-structural.mjs",
     "preview": "vite preview --host 127.0.0.1"
   },
   "dependencies": {

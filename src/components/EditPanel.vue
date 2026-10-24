@@ -11,6 +11,7 @@ import type {
 } from '../core/formats/types'
 import { UNITS, getUnitMaxGrade } from '../core/data/units'
 import { editorConfig, getCommanderName, getItemDisplayName } from '../core/data/config'
+import { addArmy as transactAddArmy, addBuild as transactAddBuild, removeArmy as transactRemoveArmy, removeBuild as transactRemoveBuild, BtlTransactionError } from '../core/formats/btlTransactions'
 
 const props = defineProps<{
   project: BtlProject | null
@@ -20,6 +21,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'change'): void
+  (e: 'replace', project: BtlProject): void
 }>()
 
 const activeSection = ref<'army' | 'build' | 'terrain'>('army')
@@ -323,22 +325,17 @@ function copyArmy() {
 }
 function pasteArmy() {
   if (!props.project || !clipboardArmy.value || tileIndex.value < 0) return
-  const idx = props.project.armies.findIndex((a) => a.index === tileIndex.value)
-  if (idx >= 0) props.project.armies.splice(idx, 1)
-  const copy: BtlArmyV2 = JSON.parse(JSON.stringify(clipboardArmy.value))
-  copy.index = tileIndex.value
-  props.project.armies.push(copy)
-  version.value++
-  emit('change')
+  try {
+    let next = army.value ? transactRemoveArmy(props.project, tileIndex.value, props.terrain ? { width: props.terrain.info.mapW, height: props.terrain.info.mapH } : undefined).project : props.project
+    const copy: BtlArmyV2 = JSON.parse(JSON.stringify(clipboardArmy.value)); copy.index = tileIndex.value
+    next = transactAddArmy(next, copy, props.terrain ? { width: props.terrain.info.mapW, height: props.terrain.info.mapH } : undefined).project
+    emit('replace', next); version.value++
+  } catch (e) { alert(e instanceof BtlTransactionError ? e.message : String(e)) }
 }
 function deleteArmy() {
   if (!props.project) return
-  const idx = props.project.armies.findIndex((a) => a.index === tileIndex.value)
-  if (idx >= 0) {
-    props.project.armies.splice(idx, 1)
-    version.value++
-    emit('change')
-  }
+  try { emit('replace', transactRemoveArmy(props.project, tileIndex.value, props.terrain ? { width: props.terrain.info.mapW, height: props.terrain.info.mapH } : undefined).project); version.value++ }
+  catch (e) { alert(e instanceof BtlTransactionError ? e.message : String(e)) }
 }
 
 function copyBuild() {
@@ -347,22 +344,17 @@ function copyBuild() {
 }
 function pasteBuild() {
   if (!props.project || !clipboardBuild.value || tileIndex.value < 0) return
-  const idx = props.project.builds.findIndex((b) => b.index === tileIndex.value)
-  if (idx >= 0) props.project.builds.splice(idx, 1)
-  const copy: BtlBuildV2 = JSON.parse(JSON.stringify(clipboardBuild.value))
-  copy.index = tileIndex.value
-  props.project.builds.push(copy)
-  version.value++
-  emit('change')
+  try {
+    let next = build.value ? transactRemoveBuild(props.project, tileIndex.value, props.terrain ? { width: props.terrain.info.mapW, height: props.terrain.info.mapH } : undefined).project : props.project
+    const copy: BtlBuildV2 = JSON.parse(JSON.stringify(clipboardBuild.value)); copy.index = tileIndex.value
+    next = transactAddBuild(next, copy, props.terrain ? { width: props.terrain.info.mapW, height: props.terrain.info.mapH } : undefined).project
+    emit('replace', next); version.value++
+  } catch (e) { alert(e instanceof BtlTransactionError ? e.message : String(e)) }
 }
 function deleteBuild() {
   if (!props.project) return
-  const idx = props.project.builds.findIndex((b) => b.index === tileIndex.value)
-  if (idx >= 0) {
-    props.project.builds.splice(idx, 1)
-    version.value++
-    emit('change')
-  }
+  try { emit('replace', transactRemoveBuild(props.project, tileIndex.value, props.terrain ? { width: props.terrain.info.mapW, height: props.terrain.info.mapH } : undefined).project); version.value++ }
+  catch (e) { alert(e instanceof BtlTransactionError ? e.message : String(e)) }
 }
 
 /* ===== 新增 ===== */
@@ -410,15 +402,14 @@ function addArmy() {
     attacked: 0,
     unknown17: 0,
     unknown18: 0,
-    event: -1,
+    event: 255,
     buildRound: 0,
     unknown21: 0,
     unknown22: 0,
     fireType: 0,
   }
-  props.project.armies.push(newArmy)
-  version.value++
-  emit('change')
+  try { emit('replace', transactAddArmy(props.project, newArmy, props.terrain ? { width: props.terrain.info.mapW, height: props.terrain.info.mapH } : undefined).project); version.value++; }
+  catch (e) { alert(e instanceof BtlTransactionError ? e.message : String(e)) }
 }
 
 function addBuild() {
@@ -436,16 +427,15 @@ function addBuild() {
     constructionLevel: 1,    // 一级
     constructionShop: 0,
     constructionStyle: 1,
-    capitalStyle: -1,
-    installationType: -1,
+    capitalStyle: 255,
+    installationType: 255,
     strongPoint: 0,
-    event: -1,
+    event: 255,
     bridges: [0, 0, 0],
     fireType: 0,
   }
-  props.project.builds.push(newBuild)
-  version.value++
-  emit('change')
+  try { emit('replace', transactAddBuild(props.project, newBuild, props.terrain ? { width: props.terrain.info.mapW, height: props.terrain.info.mapH } : undefined).project); version.value++; }
+  catch (e) { alert(e instanceof BtlTransactionError ? e.message : String(e)) }
 }
 
 function getShopItemName(itemID: number): string {

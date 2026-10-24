@@ -266,6 +266,11 @@ class Writer {
 }
 
 export function serializeBtl(p: BtlProject): ArrayBuffer {
+  // Rewrite skips negative sites, but rejects tombstones in these sections.
+  for (const [name, rows] of [['部队', p.armies], ['商店', p.shops], ['酒馆', p.bars], ['火焰', p.fires]] as const) {
+    const slot = rows.findIndex(row => row.index < 0)
+    if (slot >= 0) throw new Error(`Rewrite 不支持${name}负 cell 空槽（槽位 ${slot}）；请恢复该记录，结构删除需使用经过验证的 bridge writer`)
+  }
   if (p.tiles.length !== p.info.mapW * p.info.mapH) throw new Error('BTL 归属格数与剧本尺寸不符')
   const size =
     18 * 4 +

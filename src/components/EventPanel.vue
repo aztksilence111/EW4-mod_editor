@@ -68,14 +68,18 @@ function stringToBytes(str: string, len: number): Uint8Array {
 const buildSet = computed(() => {
   void version.value
   const s = new Set<number>()
-  if (props.project) for (const b of props.project.builds) s.add(b.index)
+  if (props.project) for (const b of props.project.builds) {
+    if (b.event !== 0 && b.event !== 255) s.add(b.event)
+  }
   return s
 })
 
 const armySet = computed(() => {
   void version.value
   const s = new Set<number>()
-  if (props.project) for (const a of props.project.armies) s.add(a.index)
+  if (props.project) for (const a of props.project.armies) {
+    if (a.event !== 0 && a.event !== 255) s.add(a.event)
+  }
   return s
 })
 

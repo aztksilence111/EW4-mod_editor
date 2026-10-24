@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { mkdirSync, copyFileSync, symlinkSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import assert from 'node:assert/strict';
@@ -10,12 +10,15 @@ const home = join(root, '.local/tests', crypto.randomUUID());
 mkdirSync(home, { recursive: true });
 copyFileSync(join(root,'.local/baseline.json'), join(home,'baseline.json'));
 symlinkSync(join(root,'.local/rewrite'), join(home,'rewrite'), 'junction');
-const server = spawn('dotnet',['bridge/bin/Debug/net10.0/Ew4.Editor.dll'], { cwd:root, env:{...process.env,EW4_EDITOR_HOME:home,EW4_EDITOR_PORT:'5185'}, stdio:['ignore','pipe','pipe'] });
+const server = spawn('dotnet',[process.env.EW4_EDITOR_TEST_DLL ?? 'bridge/bin/Debug/net10.0/Ew4.Editor.dll'], { cwd:root, env:{...process.env,EW4_EDITOR_HOME:home,EW4_EDITOR_PORT:'5190'}, stdio:['ignore','pipe','pipe'] });
 let logs=''; server.stdout.on('data',d=>{logs+=d}); server.stderr.on('data',d=>{logs+=d});
 let checks=0;
-const base='http://127.0.0.1:5185/editor-api/';
+const base='http://127.0.0.1:5190/editor-api/';
 async function request(path,body,expected=200) {
-  const response=await fetch(base+path,body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json','X-EW4-Editor':'1'},body:JSON.stringify(body)});
+  let response;
+  try {
+    response=await fetch(base+path,body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json','X-EW4-Editor':'1'},body:JSON.stringify(body)});
+  } catch (error) { throw Error(`${error.message}\n${logs}`); }
   const data=await response.json(); assert.equal(response.status,expected,JSON.stringify(data)); checks++; return data;
 }
 function rule(domain,field,value,filter={},operation='add') { return {domain,field,value,filter,operation,rounding:'round'} }
@@ -35,6 +38,14 @@ try {
   assert(ready,logs);
   const original=await request('project'); assert(original.commanders.length>500); assert.equal(original.scenarios.length,95);
   const source=await request('scenario/conquest1'); assert(source.factions.some(f=>f.id==='fra'));
+  assert(source.reverseReferences && Array.isArray(source.reverseReferences.byCell));
+  assert(Array.isArray(source.reverseReferences.events));
+  assert(Array.isArray(source.reverseReferences.jurisdictionCenters));
+  assert(source.reverseReferences.byCell.every(cell => Number.isInteger(cell.cell)
+    && Array.isArray(cell.sites) && Array.isArray(cell.armies)
+    && Array.isArray(cell.events) && Array.isArray(cell.markets) && Array.isArray(cell.taverns)));
+  assert(source.reverseReferences.events.every(event => Number.isInteger(event.eventId)
+    && Array.isArray(event.slots) && Array.isArray(event.armySlots) && Array.isArray(event.siteSlots)));
   const taskId=crypto.randomUUID();
   const preview=await request('preview',{revision:0,taskId,scenarios:['conquest1','conquest2'],rules:[rule('commanders','cavalry',1,{ids:[1]}),rule('factions','food',100,{country:'fra'})]});
   assert.equal(preview.count,3); assert.equal(preview.affectedScenarios,95);
@@ -109,5 +120,9 @@ try {
   writeFileSync(join(root,'.local/integration-result.json'),JSON.stringify(report,null,2));
   console.log(JSON.stringify(report));
 } finally {
-  server.kill(); await new Promise(resolve=>server.once('exit',resolve));
+  if (process.platform === 'win32') {
+    server.kill();
+    spawnSync('taskkill', ['/F', '/T', '/PID', String(server.pid)], { stdio: 'ignore' });
+  }
+  else { server.kill(); await new Promise(resolve=>server.once('exit',resolve)); }
 }

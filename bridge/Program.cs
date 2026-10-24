@@ -12,7 +12,7 @@ app.Use(async (context, next) =>
     var host = context.Request.Host;
     string? origin = context.Request.Headers.Origin;
     bool localOrigin = origin == null || Uri.TryCreate(origin, UriKind.Absolute, out var uri)
-        && uri.Host == "127.0.0.1" && uri.Scheme == "http" && uri.Port is 5174 or 5184;
+        && uri.Host == "127.0.0.1" && uri.Scheme == "http" && uri.Port is 5174 or 5175 or 5184;
     if (host.Host != "127.0.0.1" || !localOrigin || context.Request.Method == "POST"
         && (context.Request.Headers["X-EW4-Editor"] != "1" || !context.Request.HasJsonContentType()))
     { context.Response.StatusCode = 403; return; }
@@ -29,6 +29,7 @@ app.MapGet("/editor-api/scenario/{id}", (string id) => engine.Scenario(id));
 app.MapGet("/editor-api/terrain/{id:int}", (int id) => Results.File(engine.Terrain(id), "application/octet-stream"));
 app.MapPost("/editor-api/preview", (BatchRequest request) => engine.Preview(request));
 app.MapPost("/editor-api/csv-preview", (CsvRequest request) => engine.PreviewCsv(request));
+app.MapPost("/editor-api/mod-preview", (ModImportRequest request) => engine.PreviewMod(request));
 app.MapPost("/editor-api/apply", (ApplyRequest request) => engine.Apply(request));
 app.MapPost("/editor-api/history", (HistoryRequest request) => engine.History(request));
 app.MapPost("/editor-api/validate", () => engine.Validate());

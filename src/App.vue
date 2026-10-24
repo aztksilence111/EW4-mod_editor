@@ -12,6 +12,7 @@ import MapSelectDialog from './components/MapSelectDialog.vue'
 import CampaignSelectDialog from './components/CampaignSelectDialog.vue'
 import ConquestSelectDialog from './components/ConquestSelectDialog.vue'
 import { parseBtl, serializeBtl } from './core/formats/btl'
+import { assertValidBtlReferences } from './core/formats/btlValidation'
 import { parseBin, serializeBin } from './core/formats/bin'
 import { loadBuiltinMap } from './core/data/builtinMaps'
 import { loadBuiltinCommanders, exportConfig, importConfig } from './core/data/config'
@@ -297,6 +298,9 @@ async function onPickConquest(file: string) {
 function onExport() {
   if (!project.value) { alert('请先导入 BTL 文件'); return }
   try {
+    assertValidBtlReferences(project.value, terrain.value
+      ? { width: terrain.value.info.mapW, height: terrain.value.info.mapH }
+      : undefined)
     const buf = serializeBtl(project.value)
     const blob = new Blob([buf], { type: 'application/octet-stream' })
     const url = URL.createObjectURL(blob)
@@ -483,6 +487,12 @@ function onProjectChange() {
   updateStatus()
 }
 
+function onProjectReplace(next: BtlProject) {
+  project.value = next
+  changeVersion.value++
+  updateStatus()
+}
+
 async function onSaveNow() {
   status.value = '正在保存草稿...'
   await doSave()
@@ -585,6 +595,7 @@ onMounted(async () => {
           :terrain="terrain"
           :selected="selectedTile"
           @change="onProjectChange"
+          @replace="onProjectReplace"
         />
       </WindowFrame>
 
