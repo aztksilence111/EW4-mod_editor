@@ -9,6 +9,7 @@ using Ew4.Mods;
 using Ew4.Persistence;
 
 string root = Path.GetFullPath(args[0]);
+if (args.Contains("--jurisdictions")) { JurisdictionCompatibility.Run(root); return; }
 if (args.Contains("--original-export")) { OriginalExportCompatibility.Run(root); return; }
 if (args.Contains("--event-graphs")) { EventGraphCompatibility.Run(root); return; }
 if (args.Contains("--countries-events")) { CountryEventCompatibility.Run(root); return; }

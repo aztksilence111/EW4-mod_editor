@@ -35,9 +35,12 @@ const contentWorkspace = ref(false)
 const workbench = ref<InstanceType<typeof RewriteWorkbench> | null>(null)
 const selectedCells = ref<number[]>([])
 const jurisdictionCenters = ref<number[] | null>(null)
+const jurisdictionPreview = ref<number[] | null>(null)
+const jurisdictionFocus = ref<number | null>(null)
 const showJurisdictions = ref(false)
 function onRewriteLoaded(p: BtlProject, t: BinProject, view: ScenarioView) {
   project.value = p; terrain.value = t; jurisdictionCenters.value = view.jurisdictions ?? view.effectiveJurisdictions
+  jurisdictionPreview.value = null
   selectedTile.value = null; changeVersion.value++; updateStatus(view.id)
 }
 function useLegacyMode() {
@@ -537,7 +540,7 @@ onMounted(async () => {
 
 <template>
   <div class="app">
-    <RewriteWorkbench v-if="rewriteMode" ref="workbench" @workspace="contentWorkspace = $event" @loaded="onRewriteLoaded" @selection="selectedCells = $event" @layer="showJurisdictions = $event" @legacy="useLegacyMode" />
+    <RewriteWorkbench v-if="rewriteMode" ref="workbench" @workspace="contentWorkspace = $event" @loaded="onRewriteLoaded" @selection="selectedCells = $event" @layer="showJurisdictions = $event" @jurisdiction-preview="jurisdictionPreview = $event" @jurisdiction-focus="jurisdictionFocus = $event" @legacy="useLegacyMode" />
     <button v-else class="return-rewrite" @click="rewriteMode = true; showMapSelect = false; openWindow = ''">返回 Rewrite 工程</button>
     <TopBar
       v-if="!rewriteMode"
@@ -575,7 +578,8 @@ onMounted(async () => {
         :mode="mode"
         :selected="selectedTile"
         :selected-cells="rewriteMode ? selectedCells : []"
-        :jurisdiction-centers="showJurisdictions ? jurisdictionCenters : null"
+        :jurisdiction-centers="showJurisdictions ? jurisdictionPreview ?? jurisdictionCenters : null"
+        :jurisdiction-focus="showJurisdictions ? jurisdictionFocus : null"
         :change-version="changeVersion"
         :terrain-mode="terrainMode"
         :clip-active="clipActive"

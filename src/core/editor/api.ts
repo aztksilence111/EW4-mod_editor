@@ -27,6 +27,8 @@ export interface ModPreview extends Preview {
 export interface ScenarioView {
   id: string; bytes: string; mapId: number; mapWidth: number; revision: number; extensions: string[];
   factions: { index: number; id: string; variant: string; color?: number }[]; jurisdictions: number[] | null; effectiveJurisdictions: number[]
+  jurisdictionEditing: { supported: boolean; left: number; top: number; width: number; height: number;
+    centers: { cell: number; name: string | null; kind: string; country: string | null }[]; editableCells: number[] }
   reverseReferences: {
     valid: boolean; conflicts: { code: string; subject: string; detail: string }[]
     byCell: { cell: number; sites: number[]; armies: number[]; events: number[]; markets: number[]; taverns: number[] }[]

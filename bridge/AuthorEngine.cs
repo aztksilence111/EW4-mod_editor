@@ -128,11 +128,21 @@ public sealed partial class AuthorEngine
             var bytes = Read(state.Files, ScenarioPath(id)); var b = LegacyBattle.Read(bytes);
             var terrain = LegacyTerrainMap.Read(Read(state.Files, MapFile(b.MapId)));
             var countries = CountryCatalog.Load(p => Read(state.Files, p));
+            var jurisdictionWorld = JurisdictionWorld(state.Files, b, id);
+            var effective = b.Jurisdictions?.CellCenters ?? JurisdictionAssignments(b, terrain.Width, jurisdictionWorld);
+            bool InBattle(int cell) => cell % terrain.Width >= b.Left && cell % terrain.Width < b.Left + b.Width
+                && cell / terrain.Width >= b.Top && cell / terrain.Width < b.Top + b.Height;
+            var land = jurisdictionWorld?.Cells.Select((cell, index) => (cell, index)).Where(p => InBattle(p.index)
+                && p.cell.Terrain.Active && !p.cell.Terrain.Sea && p.cell.BuildingKind != "port").ToArray() ?? [];
             return new { id, bytes = Convert.ToBase64String(b.ToLegacyBytes()), sha256 = Hash(bytes), b.MapId,
                 factions = b.Factions.Select((f, i) => new { index = i, id = f.CountryId, f.Variant,
                     color = countries.Get(f.CountryId)?.Color is string color ? ScenarioFactions.PackedColor(color) : f.Color }),
                 jurisdictions = b.Jurisdictions?.CellCenters,
-                effectiveJurisdictions = b.Jurisdictions?.CellCenters ?? EffectiveJurisdictions(state.Files, b, id, terrain.Width), mapWidth = terrain.Width,
+                effectiveJurisdictions = effective, mapWidth = terrain.Width,
+                jurisdictionEditing = new { supported = jurisdictionWorld != null, b.Left, b.Top, b.Width, b.Height,
+                    centers = land.Where(p => TerritorialJurisdictions.IsCenter(p.cell)).Select(p => new {
+                        cell = p.index, name = p.cell.Name, kind = p.cell.BuildingKind, country = p.cell.Owner }),
+                    editableCells = land.Where(p => !TerritorialJurisdictions.IsCenter(p.cell)).Select(p => p.index) },
                 extensions = ExtensionTags(bytes, b.LegacyLength), reverseReferences = BattleReferenceValidation.Build(b, terrain), state.Revision };
         }
     }
@@ -544,9 +554,17 @@ public sealed partial class AuthorEngine
     }
     private int[] EffectiveJurisdictions(Dictionary<string, byte[]> files, LegacyBattle battle, string id, int mapWidth)
     {
+        return JurisdictionAssignments(battle, mapWidth, JurisdictionWorld(files, battle, id));
+    }
+    private WorldState? JurisdictionWorld(Dictionary<string, byte[]> files, LegacyBattle battle, string id)
+    {
         var content = Content(files); var choice = content.Scenarios.Single(s => s.Id == id);
-        if (choice.Mode is not (1 or 2)) return Enumerable.Repeat(-1, battle.Width * battle.Height).ToArray();
-        var world = content.Start(id, choice.Mode == 2 ? battle.Factions.First(f => f.Camp != 4).CountryId : null).Session.World;
+        if (choice.Mode is not (1 or 2)) return null;
+        return content.Start(id, choice.Mode == 2 ? battle.Factions.First(f => f.Camp != 4).CountryId : null).Session.World;
+    }
+    private static int[] JurisdictionAssignments(LegacyBattle battle, int mapWidth, WorldState? world)
+    {
+        if (world == null) return Enumerable.Repeat(-1, battle.Width * battle.Height).ToArray();
         var effective = world.Jurisdictions ?? TerritorialJurisdictions.Create(world);
         return Enumerable.Range(0, battle.Width * battle.Height).Select(i => effective.CellCenters[(battle.Top + i / battle.Width) * mapWidth + battle.Left + i % battle.Width]).ToArray();
     }

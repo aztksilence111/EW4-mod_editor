@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue'
 import Papa from 'papaparse'
-import { Users, Layers, ShieldCheck, Undo2, Redo2, Download, Upload, X, MousePointer2, Hand, Scan, RefreshCw, FileDown, Play, Trash2, Swords, Flag, GitBranch, Map, Library } from 'lucide-vue-next'
+import { Users, Layers, ShieldCheck, Undo2, Redo2, Download, Upload, X, MousePointer2, Hand, Scan, RefreshCw, FileDown, Play, Trash2, Swords, Flag, GitBranch, Map, Library, MapPinned, Crosshair } from 'lucide-vue-next'
 import CountryPanel from './CountryPanel.vue'
 import RewriteEventPanel from './RewriteEventPanel.vue'
 import type { BtlProject, BinProject } from '../core/formats/types'
@@ -13,6 +13,8 @@ const emit = defineEmits<{
   loaded: [project: BtlProject, terrain: BinProject, view: ScenarioView]
   selection: [cells: number[]]
   layer: [enabled: boolean]
+  'jurisdiction-preview': [centers: number[] | null]
+  'jurisdiction-focus': [cell: number | null]
   legacy: []
   workspace: [library: boolean]
 }>()
@@ -50,6 +52,25 @@ const value = ref(1)
 const rounding = ref('round')
 const targetCountry = ref('fra')
 const center = ref(-1)
+const jurisdictionTarget = ref(-1)
+const pickingCenter = ref(false)
+const jurisdictionPreview = ref<Preview | null>(null)
+const jurisdictionData = computed(() => view.value?.jurisdictionEditing)
+const editableJurisdictionCells = computed(() => new Set(jurisdictionData.value?.editableCells ?? []))
+const jurisdictionSelection = computed(() => selectedCells.value.filter(cell => editableJurisdictionCells.value.has(cell)))
+const jurisdictionSignature = () => JSON.stringify([overview.value?.revision, scenario.value, jurisdictionTarget.value, selectedCells.value, panel.value, workspace.value])
+const jurisdictionKinds: Record<string, string> = { city: '城市', industry: '工厂', stable: '马厩' }
+function jurisdictionLocal(cell: number) {
+  const data = jurisdictionData.value, width = view.value?.mapWidth
+  if (!data || !width) return -1
+  const x = cell % width - data.left, y = Math.floor(cell / width) - data.top
+  return x < 0 || x >= data.width || y < 0 || y >= data.height ? -1 : y * data.width + x
+}
+function clearJurisdictionPreview() { jurisdictionPreview.value = null; emit('jurisdiction-preview', null) }
+watch([selectedCells, jurisdictionTarget, () => overview.value?.revision, scenario], clearJurisdictionPreview, { deep: true })
+watch([panel, library], () => { pickingCenter.value = false; clearJurisdictionPreview() })
+watch([jurisdictionTarget, panel, library, jurisdictionLayer], () => emit('jurisdiction-focus',
+  panel.value === 'jurisdictions' && !library.value && jurisdictionLayer.value && jurisdictionTarget.value >= 0 ? jurisdictionTarget.value : null))
 const armyType = ref('')
 const commander = ref('')
 const skillId = ref('ew4.skill.0')
@@ -106,12 +127,14 @@ async function run(action: () => Promise<void>) {
   try { await action() } catch (e) { error.value = e instanceof Error ? e.message : String(e) } finally { busy.value = false }
 }
 async function loadScenario() {
+  pickingCenter.value = false; clearJurisdictionPreview()
   preview.value = null; deletionPreview.value = null; selectedArmySlots.value = []; rectangleStart.value = null
   const next = await api<ScenarioView>('scenario/' + scenario.value)
   const terrainResponse = await fetch('/editor-api/terrain/' + next.mapId)
   if (!terrainResponse.ok) throw new Error('地图读取失败')
   const terrain = parseBin(await terrainResponse.arrayBuffer())
   view.value = next; selectedCells.value = []; emit('selection', [])
+  if (jurisdictionTarget.value !== -1 && !next.jurisdictionEditing?.centers.some(c => c.cell === jurisdictionTarget.value)) jurisdictionTarget.value = -1
   const project = parseBtl(fromBase64(next.bytes))
   next.factions.forEach(f => { if (project.legions[f.index] && f.color !== undefined) project.legions[f.index]!.color = f.color })
   armyRows.value = project.armies.map((army, slot) => ({ slot, cell: army.index, type: army.armyType, commander: army.commander }))
@@ -127,10 +150,17 @@ function togglePanel(key: string) {
   panel.value = library.value ? key : panel.value === key ? '' : key
   if (['commanders', 'countries', 'events'].includes(key)) libraryTab.value = key
   if (key === 'commanders') domain.value = 'commanders'
+  if (key === 'jurisdictions' && panel.value === key) { jurisdictionLayer.value = true; selectionMode.value = 'point' }
 }
 function selectTile(x: number, y: number) {
-  if (!view.value || selectionMode.value === 'pan') return
+  if (!view.value || busy.value) return
   const cell = y * view.value.mapWidth + x
+  if (pickingCenter.value) {
+    if (!jurisdictionData.value?.centers.some(c => c.cell === cell)) { error.value = '该地块不是有效的城市、工厂或马厩中心'; return }
+    jurisdictionTarget.value = cell; pickingCenter.value = false; error.value = ''; return
+  }
+  if (selectionMode.value === 'pan') return
+  if (panel.value === 'jurisdictions' && jurisdictionLocal(cell) < 0) { error.value = '地块不在当前剧本区域内'; return }
   if (selectionMode.value === 'point') {
     selectedCells.value = selectedCells.value.includes(cell) ? selectedCells.value.filter(c => c !== cell) : [...selectedCells.value, cell]
   } else if (!rectangleStart.value) { rectangleStart.value = { x, y }; selectedCells.value = [cell] }
@@ -143,6 +173,30 @@ function selectTile(x: number, y: number) {
   emit('selection', selectedCells.value)
 }
 defineExpose({ selectTile })
+function selectJurisdiction() {
+  const assignments = view.value?.jurisdictions ?? view.value?.effectiveJurisdictions
+  selectedCells.value = (jurisdictionData.value?.editableCells ?? []).filter(cell => assignments?.[jurisdictionLocal(cell)] === jurisdictionTarget.value)
+  rectangleStart.value = null; emit('selection', selectedCells.value)
+}
+async function previewJurisdiction() {
+  if (!overview.value || !view.value || !jurisdictionSelection.value.length || !jurisdictionData.value?.supported) return
+  clearJurisdictionPreview()
+  const signature = jurisdictionSignature()
+  const result = await api<Preview>('preview', { revision: overview.value.revision, taskId: crypto.randomUUID(), scenarios: [scenario.value],
+    rules: [{ domain: 'jurisdictions', field: 'center', operation: 'set', value: 0, center: jurisdictionTarget.value,
+      filter: { cells: [...jurisdictionSelection.value], mapId: view.value.mapId } }] })
+  if (signature !== jurisdictionSignature()) throw new Error('辖区选区或中心已变化，请重新预览')
+  jurisdictionPreview.value = result
+  const assignments = [...(view.value.jurisdictions ?? view.value.effectiveJurisdictions)]
+  for (const change of result.changes.filter(c => c.field === 'jurisdictions')) assignments[jurisdictionLocal(Number(change.object.slice(5)))] = Number(change.after)
+  emit('jurisdiction-preview', assignments)
+}
+async function applyJurisdiction() {
+  const candidate = jurisdictionPreview.value
+  if (!candidate || !overview.value) return
+  await api('apply', { revision: candidate.revision, token: candidate.token, taskId: candidate.taskId })
+  await refresh(); notice.value = '辖区修改已保存'
+}
 function selectMapArmies() {
   selectedArmySlots.value = armyRows.value.filter(a => selectedCells.value.includes(a.cell)).map(a => a.slot)
   panel.value = 'armies'
@@ -271,7 +325,7 @@ onMounted(() => run(refresh))
     <strong>EW4 <span>Rewrite Mod 编辑器</span></strong>
     <select v-model="scenario" aria-label="当前剧本" :disabled="busy" @change="run(loadScenario)"><option v-for="s in overview?.scenarios" :key="s.id" :value="s.id">{{ s.name }} · {{ s.id }}{{ s.modified ? ' *' : '' }}</option></select>
     <nav class="view-tabs" aria-label="工作区"><button :class="{ active: !library }" @click="switchWorkspace('map')"><Map :size="16" />地图编辑</button><button :class="{ active: library }" @click="switchWorkspace('library')"><Library :size="16" />内容编辑</button></nav>
-    <div v-if="!library" class="view-tabs"><button v-for="(label, key) in { armies: '部队', batch: '批处理', export: '验证导出' }" :key="key" :class="{ active: panel === key }" @click="togglePanel(key)"><component :is="key === 'armies' ? Swords : key === 'batch' ? Layers : ShieldCheck" :size="16" />{{ label }}</button></div>
+    <div v-if="!library" class="view-tabs"><button v-for="(label, key) in { armies: '部队', jurisdictions: '辖区', batch: '批处理', export: '验证导出' }" :key="key" :class="{ active: panel === key }" @click="togglePanel(key)"><component :is="key === 'armies' ? Swords : key === 'jurisdictions' ? MapPinned : key === 'batch' ? Layers : ShieldCheck" :size="16" />{{ label }}</button></div>
     <button title="撤销整批" :disabled="busy || !overview?.canUndo" @click="run(() => history('undo'))"><Undo2 :size="18" /></button>
     <button title="重做整批" :disabled="busy || !overview?.canRedo" @click="run(() => history('redo'))"><Redo2 :size="18" /></button>
     <span class="revision">r{{ overview?.revision ?? 0 }}</span>
@@ -280,16 +334,30 @@ onMounted(() => run(refresh))
   </header>
   <nav v-if="library" class="content-tabs" aria-label="内容分类"><button v-for="(label, key) in { commanders: '将领', countries: '国家', events: '事件树', batch: '批处理', export: '验证导出' }" :key="key" :class="{ active: panel === key }" @click="togglePanel(key)"><component :is="key === 'commanders' ? Users : key === 'countries' ? Flag : key === 'events' ? GitBranch : key === 'batch' ? Layers : ShieldCheck" :size="16" />{{ label }}</button></nav>
   <div v-if="!library" class="map-tools">
-    <button v-for="(icon, key) in { pan: Hand, point: MousePointer2, rectangle: Scan }" :key="key" :class="{ active: selectionMode === key }" :title="key === 'pan' ? '平移' : key === 'point' ? '点选' : '矩形选区：两个角点'" @click="selectionMode = key; rectangleStart = null"><component :is="icon" :size="18" /></button>
+    <button v-for="(icon, key) in { pan: Hand, point: MousePointer2, rectangle: Scan }" :key="key" :class="{ active: selectionMode === key }" :disabled="busy" :title="key === 'pan' ? '平移' : key === 'point' ? '点选' : '矩形选区：两个角点'" @click="selectionMode = key; rectangleStart = null"><component :is="icon" :size="18" /></button>
     <span>{{ selectedCells.length }} 格{{ rectangleStart ? ' · 待选终点' : '' }}</span>
-    <button title="清空选区" @click="selectedCells = []; emit('selection', [])"><X :size="16" /></button>
+    <button title="清空选区" :disabled="busy" @click="selectedCells = []; rectangleStart = null; emit('selection', [])"><X :size="16" /></button>
     <button title="选择选区部队" :disabled="busy || !selectedCells.length" @click="selectMapArmies"><Swords :size="16" /></button>
     <label><input v-model="jurisdictionLayer" type="checkbox" />辖区层</label>
     <span v-if="view" class="reference-status" :class="{ invalid: !view.reverseReferences.valid }" :title="view.reverseReferences.conflicts.map(c => c.detail).join('\n')">{{ referenceStatus }}</span>
   </div>
   <div v-if="busy || error || notice" class="feedback" :class="{ error }" role="status">{{ busy ? '正在处理…' : error || notice }}</div>
-  <section v-if="overview" v-show="panel" :class="library ? 'content-workspace' : 'author-panel'" :aria-busy="busy">
-    <div class="panel-heading"><h2>{{ panel === 'commanders' ? '将领定义' : panel === 'countries' ? '国家定义' : panel === 'events' ? '事件树' : panel === 'armies' ? '剧本部队' : panel === 'batch' ? '批处理' : '验证与导出' }}</h2><span>{{ overview?.files.length ?? 0 }} 个覆盖文件</span><button v-if="!library" title="关闭面板" @click="panel = ''"><X :size="18" /></button></div>
+  <section v-if="overview" v-show="panel" :class="[library ? 'content-workspace' : 'author-panel', { 'jurisdiction-panel': !library && panel === 'jurisdictions' }]" :aria-busy="busy">
+    <div class="panel-heading"><h2>{{ panel === 'commanders' ? '将领定义' : panel === 'countries' ? '国家定义' : panel === 'events' ? '事件树' : panel === 'armies' ? '剧本部队' : panel === 'jurisdictions' ? '辖区编辑' : panel === 'batch' ? '批处理' : '验证与导出' }}</h2><span>{{ overview?.files.length ?? 0 }} 个覆盖文件</span><button v-if="!library" title="关闭面板" @click="panel = ''"><X :size="18" /></button></div>
+    <div v-if="panel === 'jurisdictions'" class="panel-body jurisdiction-editor">
+      <p v-if="!jurisdictionData?.supported" role="status">当前剧本未启用领土辖区规则。</p>
+      <template v-else>
+        <div class="jurisdiction-summary">{{ scenario }} · {{ view?.jurisdictions ? '手工辖区 JURI' : '自动划分' }}</div>
+        <label>目标辖区<select v-model.number="jurisdictionTarget" aria-label="目标辖区中心" :disabled="busy"><option :value="-1">无辖区（移出选中地块）</option><option v-for="c in jurisdictionData.centers" :key="c.cell" :value="c.cell">{{ c.name || jurisdictionKinds[c.kind] }} · {{ c.cell }} · {{ jurisdictionKinds[c.kind] }}</option></select></label>
+        <div class="actions"><button title="从地图拾取辖区中心" :aria-pressed="pickingCenter" :class="{ active: pickingCenter }" :disabled="busy" @click="pickingCenter = !pickingCenter"><Crosshair :size="16" /></button><button title="选中该辖区的可编辑地块" :disabled="busy || pickingCenter" @click="selectJurisdiction"><Scan :size="16" />选中此辖区</button></div>
+        <div v-if="pickingCenter" class="jurisdiction-summary" role="status">正在拾取辖区中心</div>
+        <template v-else>
+          <div class="jurisdiction-summary">已选 {{ selectedCells.length }} 格 · 可修改 {{ jurisdictionSelection.length }} 格<span v-if="selectedCells.length !== jurisdictionSelection.length"> · 略过中心、海格或港口 {{ selectedCells.length - jurisdictionSelection.length }} 格</span></div>
+          <div class="actions"><button :disabled="busy || !jurisdictionSelection.length" @click="run(previewJurisdiction)"><Play :size="16" />预览辖区修改</button><button v-if="jurisdictionPreview" title="取消辖区预览" :disabled="busy" @click="clearJurisdictionPreview"><X :size="16" /></button><button v-if="jurisdictionPreview" :disabled="busy || !jurisdictionPreview.count" @click="run(applyJurisdiction)">应用辖区修改</button></div>
+          <template v-if="jurisdictionPreview"><div class="jurisdiction-summary">预览 · {{ jurisdictionPreview.changes.filter(c => c.field === 'jurisdictions').length }} 格变化</div><div class="table-scroll jurisdiction-diff"><table><thead><tr><th>地块</th><th>原中心</th><th>新中心</th></tr></thead><tbody><tr v-for="change in jurisdictionPreview.changes.filter(c => c.field === 'jurisdictions').slice(0, 100)" :key="change.object"><td>{{ change.object.slice(5) }}</td><td>{{ change.before }}</td><td>{{ change.after }}</td></tr></tbody></table></div></template>
+        </template>
+      </template>
+    </div>
     <div v-if="visitedContent.includes('countries')" v-show="panel === 'countries'" class="panel-body"><CountryPanel :overview="overview" :scenario="scenario" :view="view" :disabled="busy" @changed="run(refresh)" /></div>
     <div v-if="visitedContent.includes('events')" v-show="panel === 'events'" class="panel-body event-workspace"><RewriteEventPanel :revision="overview.revision" :scenario="scenario" :cells="selectedCells" :disabled="busy" @changed="run(refresh)" /></div>
     <div v-if="panel === 'armies'" class="panel-body army-panel">
@@ -355,6 +423,13 @@ onMounted(() => run(refresh))
 .content-workspace { flex:1; min-height:0; display:flex; flex-direction:column; background:#f8faf9; color:#253237; overflow:hidden; }
 .content-workspace .panel-body { padding:16px 24px; }
 .content-workspace .event-workspace { padding:0; overflow:hidden; }
+.author-panel.jurisdiction-panel { width:360px; top:126px; bottom:auto; max-height:calc(100% - 150px); }
+.jurisdiction-editor label { display:flex; flex-direction:column; gap:6px; font-size:12px; }
+.jurisdiction-editor select { width:100%; }
+.jurisdiction-summary { font-size:12px; color:#50685d; line-height:1.5; overflow-wrap:anywhere; }
+.jurisdiction-diff { max-height:140px; }
+.jurisdiction-editor p { font-size:12px; margin:0; }
+@media(max-width:800px) { .author-panel.jurisdiction-panel { width:calc(100% - 16px); top:auto; bottom:8px; max-height:48vh; } }
 .feedback:not(.error) { pointer-events:none; }
 .export-panel>label>select { width:100%; }
 @media(max-width:800px) { .content-workspace .panel-body { padding:10px; }.content-workspace .event-workspace { padding:0; } }

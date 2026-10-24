@@ -34,6 +34,7 @@ const props = defineProps<{
   selected: { x: number; y: number } | null
   selectedCells?: number[]
   jurisdictionCenters?: number[] | null
+  jurisdictionFocus?: number | null
   changeVersion?: number
   terrainMode?: boolean
   clipActive?: boolean
@@ -1152,6 +1153,16 @@ function draw() {
       hexPath(cx, cy); ctx.fill(); ctx.stroke()
     }
   }
+  if (t && props.jurisdictionCenters && props.jurisdictionFocus != null && props.jurisdictionFocus >= 0) {
+    const cell = props.jurisdictionFocus
+    const { cx, cy } = hexCenter(cell % t.info.mapW, Math.floor(cell / t.info.mapW))
+    ctx.save()
+    ctx.strokeStyle = '#ffda63'; ctx.fillStyle = '#263832'; ctx.lineWidth = 2 / view.scale
+    ctx.beginPath(); ctx.arc(cx, cy, 9 / view.scale, 0, Math.PI * 2); ctx.fill(); ctx.stroke()
+    ctx.fillStyle = '#ffda63'; ctx.font = `${12 / view.scale}px system-ui`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+    ctx.fillText(String(cell), cx, cy - 18 / view.scale)
+    ctx.restore()
+  }
   if (props.selected) {
     const { x, y } = props.selected
     const { cx, cy } = hexCenter(x, y)
@@ -1292,7 +1303,7 @@ let resizeObserver: ResizeObserver | null = null
 // 只重绘，不动视图
 watch(
   () => [
-    props.mode, props.selected, props.changeVersion, props.selectedCells, props.jurisdictionCenters,
+    props.mode, props.selected, props.changeVersion, props.selectedCells, props.jurisdictionCenters, props.jurisdictionFocus,
     props.terrainMode, props.clipStart, props.clipEnd,
     editorConfig.value.displayMode,
     editorConfig.value.display.buildingAlpha,
