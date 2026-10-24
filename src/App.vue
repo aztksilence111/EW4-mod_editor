@@ -31,6 +31,7 @@ import RewriteWorkbench from './components/RewriteWorkbench.vue'
 import type { ScenarioView } from './core/editor/api'
 
 const rewriteMode = ref(true)
+const contentWorkspace = ref(false)
 const workbench = ref<InstanceType<typeof RewriteWorkbench> | null>(null)
 const selectedCells = ref<number[]>([])
 const jurisdictionCenters = ref<number[] | null>(null)
@@ -536,7 +537,7 @@ onMounted(async () => {
 
 <template>
   <div class="app">
-    <RewriteWorkbench v-if="rewriteMode" ref="workbench" @loaded="onRewriteLoaded" @selection="selectedCells = $event" @layer="showJurisdictions = $event" @legacy="useLegacyMode" />
+    <RewriteWorkbench v-if="rewriteMode" ref="workbench" @workspace="contentWorkspace = $event" @loaded="onRewriteLoaded" @selection="selectedCells = $event" @layer="showJurisdictions = $event" @legacy="useLegacyMode" />
     <button v-else class="return-rewrite" @click="rewriteMode = true; showMapSelect = false; openWindow = ''">返回 Rewrite 工程</button>
     <TopBar
       v-if="!rewriteMode"
@@ -567,7 +568,7 @@ onMounted(async () => {
       @close="showActualDisplay = false"
     />
 
-    <div class="map-container">
+    <div v-show="!rewriteMode || !contentWorkspace" class="map-container">
       <MapView
         :project="project"
         :terrain="terrain"

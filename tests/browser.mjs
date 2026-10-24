@@ -21,7 +21,6 @@ try {
     page.on('pageerror',e=>errors.push(e.message));
     page.on('response',r=>{if(r.status()>=400)errors.push(r.status()+' '+r.url())});
     await page.goto(process.env.EW4_EDITOR_UI_URL || 'http://127.0.0.1:5174', {waitUntil:'networkidle'});
-    await page.locator('.commanders-table tbody tr').first().waitFor({timeout:20000});
     await expect(page.locator('.author-panel')).toHaveAttribute('aria-busy','false', { timeout:120000 });
     await page.waitForFunction(()=>document.querySelector('canvas')?.width>0);
     const canvas=page.locator('canvas');
@@ -30,6 +29,8 @@ try {
       const colors=new Set(); for(let i=0;i<data.length;i+=Math.max(4,Math.floor(data.length/1600/4)*4))colors.add(`${data[i]},${data[i+1]},${data[i+2]}`); return colors.size;
     });
     assert(colors>12,'Canvas is blank');
+    await page.getByRole('button', {name:'内容编辑',exact:true}).click();
+    await page.locator('.commanders-table tbody tr').first().waitFor({timeout:20000});
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'Page overflows viewport');
     await page.screenshot({path:`${out}/commanders-${viewport.width}.png`});
     await page.getByRole('textbox',{name:'搜索将领'}).fill('Napoleon');
@@ -57,7 +58,7 @@ try {
         const { revision } = await readAuthor();
         await page.getByTitle(direction === 'undo' ? '撤销整批' : '重做整批', { exact:true }).click();
         await expect(page.locator('.revision')).toHaveText(`r${revision + 1}`);
-        await expect(page.locator('.author-panel')).toHaveAttribute('aria-busy', 'false');
+        await expect(page.locator('.content-workspace')).toHaveAttribute('aria-busy', 'false');
       };
       const before = await readAuthor();
       const packageHash = sha256(readFileSync(process.env.EW4_EDITOR_BROWSER_PACKAGE));
@@ -66,7 +67,7 @@ try {
       const applyImport = page.getByRole('button',{name:'应用导入',exact:true});
       const previewImport = async () => {
         await page.getByRole('button',{name:'预览导入',exact:true}).click();
-        await expect(page.locator('.author-panel')).toHaveAttribute('aria-busy', 'false', { timeout:600000 });
+        await expect(page.locator('.content-workspace')).toHaveAttribute('aria-busy', 'false', { timeout:600000 });
         await expect(page.locator('.feedback.error')).toHaveCount(0);
       };
       await page.locator('input[type=file][accept=".ew4mod"]').setInputFiles(process.env.EW4_EDITOR_BROWSER_PACKAGE);
@@ -100,7 +101,7 @@ try {
         const local = await post('preview', { revision:(await readAuthor()).revision, taskId:crypto.randomUUID(), scenarios:['conquest1'], rules:[foodRule(1)] });
         await post('apply', { revision:local.revision, taskId:local.taskId, token:local.token });
         await page.getByTitle('刷新工程', { exact:true }).click();
-        await expect(page.locator('.author-panel')).toHaveAttribute('aria-busy','false');
+        await expect(page.locator('.content-workspace')).toHaveAttribute('aria-busy','false');
         const edited = await readAuthor();
         await mode.selectOption('merge');
         await policy.selectOption('reject');
@@ -128,7 +129,7 @@ try {
       assert.deepEqual(snapshot(await readAuthor()), snapshot(before));
       importResult = { packageHash, applied:true, undoRedo:true, conflictPolicies:!!fixture };
     }
-    await page.getByRole('button',{name:'关闭面板'}).click();
+    await page.getByRole('button',{name:'地图编辑',exact:true}).click();
     await page.screenshot({path:`${out}/map-${viewport.width}.png`});
     // Exercise the original BTL editor's preserve-slot transaction through the UI.
     await page.getByRole('button',{name:'原版示例'}).click();

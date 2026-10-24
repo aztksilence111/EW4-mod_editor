@@ -1,0 +1,134 @@
+import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
+import { chromium, expect } from '@playwright/test';
+import { root, startEditor, stopProcess, requireFreePort } from './helpers/editor.mjs';
+
+await requireFreePort(5175);
+const editor = await startEditor(5204, 'browser-countries-events');
+let ui, browser;
+const checks = [];
+try {
+  ui = spawn(process.execPath, ['node_modules/vite/bin/vite.js', '--port', '5175'], { cwd: root, env: { ...process.env, EW4_EDITOR_API_PORT: '5204' }, stdio: 'ignore' });
+  for (let i = 0; ; i++) {
+    if (ui.exitCode !== null || i >= 150) throw Error('Vite startup failed');
+    try { if ((await fetch('http://127.0.0.1:5175')).ok) break; } catch {}
+    await delay(100);
+  }
+  browser = await chromium.launch({ channel: 'msedge', headless: true });
+  const initial = await editor.request('author');
+  mkdirSync(join(root, '.local/screenshots'), { recursive: true });
+  for (const viewport of [{ width: 1440, height: 960 }, { width: 390, height: 844 }]) {
+    const latest = await editor.request('author');
+    await editor.request('restore', { revision: latest.revision, document: JSON.stringify({ ...initial, scenarios: ['conquest1','conquest2'] }) });
+    const page = await browser.newPage({ viewport }); const errors = [];
+    page.on('pageerror', e => errors.push(e.message));
+    page.on('console', message => { if (message.type() === 'error' && !message.text().startsWith('Failed to load resource:')) errors.push(message.text()); });
+    page.on('response', r => { if (r.status() >= 400 && !r.url().endsWith('favicon.ico')) errors.push(r.status() + ' ' + r.url()); });
+    await page.goto('http://127.0.0.1:5175', { waitUntil: 'networkidle' });
+    await expect(page.getByLabel('当前剧本', { exact: true })).toBeEnabled({ timeout: 120000 });
+    await page.getByRole('button', { name: '内容编辑', exact: true }).click();
+    const idle = () => expect(page.locator('.content-workspace')).toHaveAttribute('aria-busy', 'false', { timeout: 120000 });
+    await idle(); await page.getByRole('button', { name: '国家', exact: true }).click();
+    await page.getByTitle('添加国家', { exact: true }).click();
+    await page.getByLabel('国家 ID country_1', { exact: true }).fill('browser.republic');
+    await page.getByLabel('国家名称 browser.republic', { exact: true }).fill('浏览器共和国');
+    await page.getByLabel('领土颜色 browser.republic', { exact: true }).fill('#327ab4');
+    await page.getByLabel('国家兵种模板', { exact: true }).selectOption('fra');
+    const images = ['fra','rus','gbr','aus'].map((country, i) => ({ name: `frame${i + 1}.png`, mimeType: 'image/png', buffer: readFileSync(join(root, `.local/rewrite/data/client/ui/image_flag_hd/${country}1.png`)) }));
+    await page.locator('.country-panel input[type=file][multiple]').setInputFiles([...images].reverse());
+    await expect(page.locator('.frame-order>div')).toHaveCount(4);
+    await expect(page.locator('.frame-order>div').first()).toContainText('1 · frame1.png');
+    await page.getByRole('button', { name: '采用此顺序', exact: true }).click();
+    const pixels = await page.locator('img[alt="飘动国旗预览"]').getAttribute('src');
+    await delay(125);
+    const nextPixels = await page.locator('img[alt="飘动国旗预览"]').getAttribute('src');
+    assert.notEqual(pixels, nextPixels);
+    await page.getByLabel('搜索国家', { exact: true }).fill('browser.republic');
+    await page.locator('.panel-body:visible').evaluate(el => { el.scrollTop = 0; });
+    await page.screenshot({ path: join(root, `.local/screenshots/countries-${viewport.width}.png`) });
+    await page.getByRole('button', { name: '预览国家修改', exact: true }).click();
+    await expect(page.getByRole('button', { name: /^应用国家修改/ })).toBeVisible({ timeout: 120000 });
+    await page.getByRole('button', { name: /^应用国家修改/ }).click();
+    await expect(page.locator('.country-panel')).toHaveAttribute('aria-busy', 'false', { timeout: 120000 }); await idle();
+    await expect(page.getByRole('button', { name: '预览国家修改', exact: true })).toBeDisabled();
+    const registry = (await editor.request('project')).countries;
+    assert.equal(registry.find(c => c.id === 'browser.republic').color, '#327ab4');
+    await page.getByRole('button', { name: '事件树', exact: true }).click();
+    await expect(page.getByTitle('导入事件 JSON', { exact: true })).toBeEnabled({ timeout: 30000 });
+    const events = [
+      { id: 'start', condition: { type: 'round', compare: 'ge', value: 999 }, effects: [{ type: 'food', value: 100 }] },
+      { id: 'follow', condition: { type: 'event_completed', key: 'start' }, effects: [{ type: 'state', key: 'scenario/follow', value: 1 }] },
+      { id: 'parallel', condition: { type: 'always' }, effects: [] },
+    ];
+    const graph = { links: [{ id:'first',source:'start',target:'follow',kind:'condition' }], positions: { start:{x:50,y:70}, follow:{x:440,y:70}, parallel:{x:440,y:350} }, joins: {} };
+    await page.locator('.event-panel input[type=file][accept=".json"]').setInputFiles({ name: 'events.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({events,graph})) });
+    await expect(page.getByLabel('事件 ID', { exact: true })).toHaveValue('start');
+    await page.getByLabel('事件 ID', { exact: true }).fill('start_renamed'); await page.getByLabel('事件 ID', { exact: true }).blur();
+    await expect(page.locator('.flow-canvas')).toContainText('start_renamed');
+    await page.getByRole('button', { name: '国家', exact: true }).click();
+    await page.getByRole('button', { name: '事件树', exact: true }).click();
+    await expect(page.getByLabel('事件 ID', { exact: true })).toHaveValue('start_renamed');
+    await page.getByLabel('弹窗与选项', { exact: true }).check();
+    await page.getByLabel('弹窗标题', { exact: true }).fill('军议分支');
+    await page.getByLabel('弹窗正文', { exact: true }).fill('决定下一阶段行动。');
+    await page.locator('.event-panel input[type=file][accept="image/png"]').setInputFiles(images[0]);
+    await expect(page.locator('.popup-image')).toBeVisible();
+    await page.getByRole('button', { name: '选项', exact: true }).click();
+    await page.getByLabel('选项文字', { exact: true }).nth(1).fill('暂缓');
+    await page.screenshot({ path: join(root, `.local/screenshots/event-details-${viewport.width}.png`) });
+    await page.getByTitle('返回事件画布', { exact: true }).click();
+    await expect(page.locator('.flow-canvas')).toBeVisible();
+    await page.getByTitle('自动排列', { exact: true }).click(); await delay(500);
+    const node = page.locator('.vue-flow__node[data-id="start_renamed"] .event-title');
+    const beforePosition = await page.locator('.vue-flow__node[data-id="start_renamed"]').getAttribute('style');
+    const beforePath = await page.locator('.vue-flow__edge[data-id="first"] path.vue-flow__edge-path').getAttribute('d');
+    const box = await node.boundingBox(); assert(box);
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2); await page.mouse.down();
+    await page.mouse.move(box.x + box.width / 2 + 35, box.y + box.height / 2 + 45, { steps: 10 }); await page.mouse.up(); await delay(200);
+    assert.notEqual(await page.locator('.vue-flow__node[data-id="start_renamed"]').getAttribute('style'), beforePosition);
+    assert.notEqual(await page.locator('.vue-flow__edge[data-id="first"] path.vue-flow__edge-path').getAttribute('d'), beforePath);
+    const source = await page.locator('.vue-flow__node[data-id="start_renamed"] .vue-flow__handle[data-handleid="result"]').boundingBox();
+    const target = await page.locator('.vue-flow__node[data-id="parallel"] .vue-flow__handle.target').boundingBox();
+    assert(source && target);
+    await page.mouse.move(source.x + source.width / 2,source.y + source.height / 2); await page.mouse.down();
+    await page.mouse.move(target.x + target.width / 2,target.y + target.height / 2,{steps:15}); await page.mouse.up();
+    await expect(page.locator('.graph-tools')).toContainText('2 条连线');
+    await page.screenshot({ path: join(root, `.local/screenshots/events-${viewport.width}.png`) });
+    await page.locator('.vue-flow__node[data-id="follow"] .event-title').click();
+    await expect(page.getByLabel('事件 ID', { exact: true })).toHaveValue('follow');
+    await page.getByLabel('前置连线汇合', { exact: true }).selectOption('any');
+    await page.getByRole('button', { name: '预览事件修改', exact: true }).click();
+    await expect(page.getByRole('button', { name: /^应用事件修改/ })).toBeVisible({ timeout: 120000 });
+    await page.getByRole('button', { name: /^应用事件修改/ }).click();
+    await expect(page.locator('.event-panel')).toHaveAttribute('aria-busy', 'false', { timeout: 120000 }); await idle();
+    await expect(page.getByRole('button', { name: '预览事件修改', exact: true })).toBeDisabled({ timeout: 30000 });
+    const saved = await editor.request('events/conquest1?faction=0');
+    assert.equal(saved.events[0].popup.choices.length, 2); assert.equal(saved.events[1].condition.key, 'start_renamed');
+    assert.equal(saved.graph.links.length,2); assert.equal(saved.graph.joins.follow,'any');
+    await page.locator('.vue-flow__node[data-id="start_renamed"] .event-title').click();
+    await expect(page.locator('.popup-image')).toHaveJSProperty('naturalWidth', images[0].buffer.readUInt32BE(16));
+    await page.getByTitle('返回事件画布', { exact: true }).click();
+    await page.getByLabel('事件树所属国家', { exact: true }).selectOption('1');
+    await expect(page.getByTitle('导入事件 JSON', { exact: true })).toBeEnabled();
+    await expect(page.locator('.event-block')).toHaveCount(0);
+    await page.getByLabel('事件树所属国家', { exact: true }).selectOption('0');
+    await expect(page.locator('.event-block')).toHaveCount(3);
+    await page.getByTitle('撤销整批', { exact: true }).click(); await idle();
+    await expect(page.locator('.event-block')).toHaveCount(0);
+    await page.getByTitle('重做整批', { exact: true }).click(); await idle();
+    await expect(page.locator('.flow-canvas')).toContainText('start_renamed');
+    await page.getByRole('button', {name:'地图编辑',exact:true}).click();
+    await expect(page.locator('.map-container')).toBeVisible(); await expect(page.locator('.content-workspace')).toHaveCount(0);
+    await page.getByRole('button', {name:'内容编辑',exact:true}).click();
+    await expect(page.locator('.map-container')).toBeHidden();
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, 'page overflows viewport');
+    assert.deepEqual(errors, []);
+    checks.push({ viewport, separateWorkspaces: true, countryCreateAndAnimation: true, eventDragAndEdges: true, eventScopeAndPopup: true, undoRedo: true, errors: errors.length });
+    await page.close();
+  }
+  writeFileSync(join(root, '.local/countries-events-browser-result.json'), JSON.stringify(checks, null, 2));
+  console.log(JSON.stringify(checks));
+} finally { if (browser) await browser.close(); if (ui) await stopProcess(ui); await editor.stop(); }

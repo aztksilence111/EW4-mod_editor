@@ -127,8 +127,10 @@ public sealed partial class AuthorEngine
             if (!Scenarios.Contains(id)) throw new InvalidDataException("剧本不在当前工程中");
             var bytes = Read(state.Files, ScenarioPath(id)); var b = LegacyBattle.Read(bytes);
             var terrain = LegacyTerrainMap.Read(Read(state.Files, MapFile(b.MapId)));
+            var countries = CountryCatalog.Load(p => Read(state.Files, p));
             return new { id, bytes = Convert.ToBase64String(b.ToLegacyBytes()), sha256 = Hash(bytes), b.MapId,
-                factions = b.Factions.Select((f, i) => new { index = i, id = f.CountryId, f.Variant }),
+                factions = b.Factions.Select((f, i) => new { index = i, id = f.CountryId, f.Variant,
+                    color = countries.Get(f.CountryId)?.Color is string color ? ScenarioFactions.PackedColor(color) : f.Color }),
                 jurisdictions = b.Jurisdictions?.CellCenters,
                 effectiveJurisdictions = b.Jurisdictions?.CellCenters ?? EffectiveJurisdictions(state.Files, b, id, terrain.Width), mapWidth = terrain.Width,
                 extensions = ExtensionTags(bytes, b.LegacyLength), reverseReferences = BattleReferenceValidation.Build(b, terrain), state.Revision };
@@ -175,6 +177,7 @@ public sealed partial class AuthorEngine
                     names[Path.GetFileNameWithoutExtension(file.Value)] = strings.GetValueOrDefault("title_" + key, key);
             }
             return new { state.Id, state.Revision, baseline = baseline.Revision, fingerprint, commanders,
+                countries = CountryRows(), variants = catalog["variants"]!.AsObject().Select(p => p.Key).Order().ToArray(),
                 commanderSourceHash = Hash(Read(state.Files, "original/def_commander.xml")),
                 scenarios = Scenarios.Select(id => new { id, name = names.GetValueOrDefault(id, id), modified = state.Files.ContainsKey(ScenarioPath(id)) }),
                 sources = state.Sources ?? [],
@@ -353,10 +356,7 @@ public sealed partial class AuthorEngine
             if (string.IsNullOrWhiteSpace(request.Name) || string.IsNullOrWhiteSpace(request.Version)) throw new InvalidDataException("请填写名称和版本");
             string job = Path.Combine(home, "exports", Guid.NewGuid().ToString("N")); string author = Path.Combine(job, "author");
             Directory.CreateDirectory(author);
-            var prepared = new Dictionary<string, byte[]>(state.Files, StringComparer.Ordinal);
-            PresentationResources.Synchronize(prepared, path => Read(prepared, path), BaseRead, Scenarios);
-            SyncCatalogSources(prepared);
-            CheckResources(prepared);
+            var prepared = PrepareExport();
             foreach (var (path, bytes) in prepared) ModFiles.Write(author, path, bytes);
             ProjectResourceValidation.Check(path => Read(prepared, path), baseline.Files.Union(prepared.Keys).ToHashSet(StringComparer.Ordinal));
             var store = new ModStore(baseline, Path.Combine(job, "mods"), Path.Combine(job, "preview-saves"));
@@ -365,6 +365,14 @@ public sealed partial class AuthorEngine
             string package = Path.Combine(job, request.Id + ".ew4mod"); store.Export(imported.Key, package);
             return File.ReadAllBytes(package);
         }
+    }
+    private Dictionary<string, byte[]> PrepareExport()
+    {
+        var prepared = new Dictionary<string, byte[]>(state.Files, StringComparer.Ordinal);
+        PresentationResources.Synchronize(prepared, path => Read(prepared, path), BaseRead, Scenarios);
+        SyncCatalogSources(prepared);
+        CheckResources(prepared);
+        return prepared;
     }
     private void CheckResources(Dictionary<string, byte[]> files) =>
         ProjectResourceValidation.Check(path => Read(files, path), sourceHashes.Keys.Union(files.Keys).ToHashSet(StringComparer.Ordinal));

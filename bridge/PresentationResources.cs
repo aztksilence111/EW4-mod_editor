@@ -105,15 +105,17 @@ internal static class PresentationResources
             }
         }
         var strings = Strings(read("original/stringtable_cn.ini"));
+        bool sameStrings = (string?)existing["sourceSha256"]?["stringtable_cn.ini"] == Convert.ToHexStringLower(SHA256.HashData(read("original/stringtable_cn.ini")));
         var result = new JsonObject { ["schema"] = 1, ["countries"] = new JsonObject() };
         var output = result["countries"]!.AsObject();
         foreach (var (id, choices) in variants.OrderBy(pair => pair.Key, StringComparer.Ordinal))
         {
+            if (existing["aliases"]?[id] != null) continue;
             string? variant = choices.Count == 1 ? choices.Single() : null;
             var prior = existingCountries[id] as JsonObject;
             var entry = new JsonObject
             {
-                ["name"] = strings.GetValueOrDefault(id, strings.GetValueOrDefault("name_" + id,
+                ["name"] = sameStrings && prior?["name"] != null ? (string?)prior["name"] : strings.GetValueOrDefault(id, strings.GetValueOrDefault("name_" + id,
                     (string?)prior?["name"] ?? id)),
                 ["flag"] = variant,
                 ["unitVariant"] = variant == null ? null : catalog["variants"]!.AsObject().ContainsKey(variant) ? variant : "others",
@@ -121,8 +123,12 @@ internal static class PresentationResources
             };
             if (prior?["flagImage"] is JsonNode flagImage) entry["flagImage"] = flagImage.DeepClone();
             if (prior?["color"] is JsonNode color) entry["color"] = color.DeepClone();
+            foreach (string field in new[] { "flag", "unitVariant", "visualVariant" })
+                if (prior?.ContainsKey(field) == true) entry[field] = prior[field]?.DeepClone();
+            if (entry["flagImage"] != null) entry.Remove("flag");
             output[id] = entry;
         }
+        foreach (var (id, entry) in existingCountries) if (!output.ContainsKey(id)) output[id] = entry?.DeepClone();
         if (existing["aliases"] is JsonNode aliases) result["aliases"] = aliases.DeepClone();
         result["sourceSha256"] = new JsonObject
         {

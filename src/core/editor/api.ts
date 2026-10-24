@@ -5,7 +5,10 @@ export interface Overview {
   scenarios: { id: string; name: string; modified: boolean }[]; files: string[]; canUndo: boolean; canRedo: boolean
   sources: { id: string; name: string; version: string; packageHash: string }[];
   overrides: { path: string; hash: string; baselineHash: string | null; source: string | null; edited: boolean }[]
+  countries: CountryRow[]; variants: string[]
 }
+export interface CountryRow { id: string; name: string; color: string | null; unitVariant: string | null; visualVariant: string | null; flag: string | null; flagImage?: string | null }
+export interface CountryDraft extends CountryRow { originalId: string | null; image?: string; frames?: string[] }
 export interface Rule {
   domain: string; field: string; operation: string; value: number; rounding: string;
   filter: { country?: string; search?: string; ids?: number[]; cells?: number[]; mapId?: number; armyType?: number; commander?: number };
@@ -23,7 +26,7 @@ export interface ModPreview extends Preview {
 }
 export interface ScenarioView {
   id: string; bytes: string; mapId: number; mapWidth: number; revision: number; extensions: string[];
-  factions: { index: number; id: string; variant: string }[]; jurisdictions: number[] | null; effectiveJurisdictions: number[]
+  factions: { index: number; id: string; variant: string; color?: number }[]; jurisdictions: number[] | null; effectiveJurisdictions: number[]
   reverseReferences: {
     valid: boolean; conflicts: { code: string; subject: string; detail: string }[]
     byCell: { cell: number; sites: number[]; armies: number[]; events: number[]; markets: number[]; taverns: number[] }[]
@@ -48,9 +51,10 @@ export function download(blob: Blob, name: string) {
   const url = URL.createObjectURL(blob); const link = document.createElement('a');
   link.href = url; link.download = name; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
-export async function exportMod(body: unknown, name: string) {
-  const response = await fetch('/editor-api/export', { method: 'POST',
+export async function exportMod(body: unknown, name: string, format: 'mod' | 'original' | 'btl' = 'mod') {
+  const route = format === 'original' ? 'export-original' : format === 'btl' ? 'export-btl' : 'export';
+  const response = await fetch('/editor-api/' + route, { method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-EW4-Editor': '1' }, body: JSON.stringify(body) });
   if (!response.ok) throw new Error((await response.json()).error);
-  download(await response.blob(), name + '.ew4mod');
+  download(await response.blob(), name + (format === 'original' ? '-resources.zip' : format === 'btl' ? '.btl' : '.ew4mod'));
 }

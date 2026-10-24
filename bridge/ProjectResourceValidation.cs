@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using Ew4.Mods;
+using Ew4.Legacy;
 
 namespace Ew4.Editor;
 
@@ -74,6 +75,18 @@ internal static class ProjectResourceValidation
 
         if (files.Contains("client/countries.json"))
         {
+            foreach (var (id, country) in CountryCatalog.Load(read).Countries)
+            {
+                if (country.FlagImage != null) { Need(country.FlagImage); _ = Raster.Decode(read(country.FlagImage)); }
+                else if (country.Flag != null)
+                {
+                    string path = "client/ui/image_flag_hd/" + country.Flag + "1.png";
+                    Need(path); _ = Raster.Decode(read(path));
+                    for (int frame = 1; frame <= 4; frame++)
+                        if (atlases["buildings"]?[country.Flag + frame + ".png"] == null)
+                            throw new InvalidDataException("国家缺少国旗动画帧: " + id + "/" + frame);
+                }
+            }
             var countries = ModFiles.Object(read("client/countries.json"))["countries"] as JsonObject
                 ?? throw new InvalidDataException("国家名称资源缺少 countries");
             foreach (var (id, value) in countries)

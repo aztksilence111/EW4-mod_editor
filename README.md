@@ -60,6 +60,8 @@ npm run setup -- C:/path/to/ew4-rewrite/rewrite
 
 ## 将领批量修改
 
+“地图编辑”和“内容编辑”是两个工作区。将领、国家和事件树位于全页的“内容编辑”，地图通过 ID 引用国家及将领。切换分类或回到地图会保留当前内容编辑草稿，应用后的修改统一进入工程撤销/重做历史。
+
 | 类别 | 当前支持 |
 | --- | --- |
 | 等级数值 | 军衔、爵位、星级 |
@@ -69,11 +71,21 @@ npm run setup -- C:/path/to/ew4-rewrite/rewrite
 | 数值运算 | 赋值、增加、倍率；四舍五入、向下或向上取整；越界拒绝 |
 | 文件交互 | CSV 导入/导出、配方 JSON 保存/加载 |
 
-常用流程：在“将领”面板筛选并勾选目标，选择字段、运算和值，点击“加入批处理”，再到“批处理”检查规则、预览差异并应用。未勾选时，规则使用当前全部筛选结果；已勾选时，只使用勾选项与当前筛选结果的交集。
+常用流程：在“内容编辑 → 将领”筛选并勾选目标，选择字段、运算和值，点击“加入批处理”，再到“批处理”检查规则、预览差异并应用。未勾选时，规则使用当前全部筛选结果；已勾选时，只使用勾选项与当前筛选结果的交集。
 
 **技能数量说明：**原版 XML 只有四个技能字段；Rewrite 扩展技能使用动态列表，当前所选引擎源码没有固定数量上限。**本版编辑器 UI 和作者 API 仍限制可编辑槽位为 `0..15`（16 个）**，这是尚未解除的编辑器限制，不是 Rewrite 引擎上限。扩展技能绑定通过绑定控件编辑，不通过原版四技能 CSV 字段编辑。
 
 ## 工程与内容包
+
+### 国家和事件树
+
+国家支持批量新增、修改 ID、名称、领土颜色及模板，支持 CSV 导入/导出、所选国家统一着色、静态 PNG 和四帧国旗动画。Rewrite 原生旗帜周期为四帧、每帧 100 ms；上传四张同尺寸 PNG 后可以调整顺序，导出同时写入普通和高清图集。新增国家可绑定至指定 BTL 的国家槽位；改 ID 保留旧 ID 别名，单独改名称会同步字符串表。
+
+事件树先选 BTL 和所属国家槽位。事件为可拖动的矩形块，连线随节点移动，画布支持缩放、平移和自动排列。点击节点在侧栏编辑图文、选项、触发条件、效果、周期和资源不足分支；手机使用独立详情视图。支持当前 Rewrite 的条件及效果类型，BTL 原生事件仅编辑该国家现有记录并保留槽位及引用。
+
+从“完成条件”端口连接后续事件，或从“执行结果”及选项端口连接后续事件。同一来源连接多个目标构成并发分支，目标可选择全部前置满足或任一前置满足；自身触发条件仍需满足。条件中的事件引用也显示为连线。图形连线拒绝自环和循环。运行时依次处理已经就绪的事件，弹窗等待玩家选择，因此并发指多个分支可同时就绪。
+
+图形定义及位置保存于 `client/editor-event-graphs.json`，每个 BTL/国家槽位独立。导出编译为 Rewrite 原生 `event_completed` 条件和 `scenario/` 状态效果，不依赖新增引擎效果。默认势力及 `@player` 在该树内绑定所属国家。结果信号在来源效果成功提交后生效，选项连线仅由对应选项触发；信号和完成记录持续保留，周期事件的连线不表示每轮重新等待。原有未归入国家树的脚本事件保留，可通过 JSON 迁入树中；迁入时需另行处理原定义以避免重复执行。
 
 | 文件 | 用途 |
 | --- | --- |
@@ -81,9 +93,29 @@ npm run setup -- C:/path/to/ew4-rewrite/rewrite
 | `.ew4mod` | 导入内容包，或通过 Rewrite 标准流程校验和导出 |
 | 配方 JSON | 保存可重复执行的批处理规则 |
 | 将领 CSV | 批量交换受支持的原版将领字段 |
+| 原格式资源 ZIP | 按原路径导出整个工程，或将领/国家及配套资源，用于相同 Rewrite 基线的手动资源部署 |
+| 当前剧本 `.btl` | 原样导出该 BTL，保留已有扩展，不含外置事件树和图片等资源 |
 | 旧 `.ew4p` | 仅用于“原版示例”，暂不直接迁移为 Rewrite 作者工程 |
 
 导入 `.ew4mod` 后先预览差异，再选择替换或合并及冲突策略，确认后应用。导出使用独立暂存和安装目录，不自动启用导出的 Mod。
+
+“验证导出”可选择上述三种格式。将领、国家页面各有资源 ZIP 导出按钮，导出已应用内容。将领入口包含 `original/def_commander.xml`、`legacy/catalog.json`、manifest、头像及已注册技能绑定；国家入口包含 `client/countries.json`、字符串表、修改的国旗图集/菜单图/静态图，以及项目内各 BTL 的国家绑定。共享 catalog、manifest 和扩展注册保留为完整文件，因此 ZIP 也会携带这些文件引用的其他已应用内容及依赖；它不是按所选表格行拆分的差量文件。资源 ZIP 没有 `mod.json`，应按包内目录部署，不能作为无损游戏内 Mod 导入包；游戏内导入使用 `.ew4mod`。
+
+资源 ZIP 可再选“Rewrite 原目录”或“原版 assets 目录 + Rewrite 补充”。后者包含 `assets/def_commander.xml`、`assets/stringtable_cn.ini`、`assets/<剧本>.btl`，以及修改图集对应的 `assets/<图集>.png/.xml`；目录型头像和菜单旗帜恢复为完整图集。完整 Rewrite 文件另外保存在 `rewrite-resources/`，路径对照及兼容说明在 `export-map.json`。原版目录只恢复路径及资源格式，不生成 APK、不修改 SO/DEX，也不把 Rewrite 国家 ID、领土颜色、技能、事件树和 BTL 扩展转换为原版引擎功能；BTL 仍原样保留扩展。
+
+### 事件树存储位置
+
+下载文件进入浏览器设置的下载目录。应用后、导出前的数据保存在作者服务的 `<EW4_EDITOR_HOME>/author.json`（默认 `.local/author.json`）中。资源包内默认为：
+
+| 路径 | 游戏用途 |
+| --- | --- |
+| `rewrite/extension.json` | `scenarioEvents` 注册事件文件路径；已有工程可使用其他注册路径 |
+| `rewrite/editor-events.json` | 默认运行文件，按 BTL 文件名（不含扩展名）索引，再由事件内部的所属国家引用生效 |
+| `rewrite/images/event-*.png` | 事件图片 |
+| `client/editor-event-graphs.json` | 编辑器节点、连线及位置；游戏不使用画布位置 |
+| `original/<剧本>.btl` | 地图与原生 BTL 事件；复杂 Rewrite 事件树是外置 JSON，不嵌入此文件 |
+
+游戏导入 `.ew4mod` 后，`ModStore` 将这些相对路径安装至 `<mod-root>/<mod.json 的 SHA256>/`，启用时覆盖基线资源读取。Web 发布版默认在 `saves/content-mods/<hash>/`，开发 Web 默认在 `rewrite/local/web/content-mods/<hash>/`；Android 在应用私有 `FilesDir/content-mods/<hash>/`。配置可改变根目录。单个 BTL 无法携带外置事件树；原版安卓 EW4 也不会识别 Rewrite 扩展 JSON。
 
 ## 格式与事务
 
@@ -112,6 +144,9 @@ npm run test:integration
 npm run test:import
 npm run test:skills
 npm run test:resources
+npm run test:countries-events
+npm run test:event-graphs
+npm run test:browser:countries-events
 npm run test:browser:import
 npm run test:browser:structural
 node tests/browser.mjs
@@ -123,11 +158,15 @@ node tests/browser.mjs
 
 `test:deployment` 验证 bridge 末尾追加部队的 writer/作者 API，使用已有结构夹具和隔离 5197/5198 服务，覆盖默认值、海陆/归属约束、混合批次、历史/重启、标准包导出及实际开局/存档恢复。已纳入集成入口；部署 UI 尚未接入。此路径保留已有单位 ID、独立商业/事件/辖区和原版导出闸门，不复用负 cell 草稿。
 
-`test:integration` 按顺序运行主集成、导入、技能、资源、结构删除和追加部署专项。独立运行 `test:deployment` 或 `test:browser:structural` 前，需先运行 `test:structural` 生成兼容性夹具。`npm run build` 包含前端类型检查。
+`test:integration` 按顺序运行主集成、导入、技能、资源、结构删除、追加部署、国家/国旗和分国家事件树专项。独立运行 `test:deployment` 或 `test:browser:structural` 前，需先运行 `test:structural` 生成兼容性夹具。`npm run build` 包含前端类型检查。
+
+国家/事件专项通过真实 Rewrite 导出、开局、分支运行和存档恢复校验。`test:browser:countries-events` 启动隔离 5175/5204 服务，检查桌面和手机的独立工作区、国旗动画、节点拖动、端口连线、图文详情和国家隔离；结束后关闭服务。
+
+`test:original-export` 检查整个工程/将领/国家资源 ZIP、Rewrite/原版 assets 两种目录、单 BTL 原字节、PNG/XML 图集与头像像素、失败原子性及实际 Rewrite 事件分支，已纳入集成入口。先启动开发 UI，再运行 `test:browser:original-export` 可验证双视口下载；默认访问 5175（可设 `EW4_EDITOR_UI_URL`），API 请求转至隔离 5209 工程，不改当前预览数据。
 
 ## 当前边界
 
-这是规划的首轮可用基础，尚未完成全部 P1：网页表格粘贴、国家科技数组、部队部署 UI、建筑迁移及引用联动仍待实现。bridge 追加部署 writer/作者 API、Rewrite 部队结构删除 UI、扩展技能绑定编辑已接入，支持原定义与最终有效技能并排查看；头像、城市/国家名称、图集和 manifest 的资源适配已接入并有隔离专项验证。高级区域复制、事件与胜负编辑、地图变形、XLSX 和独立游戏预览界面也尚未接入。
+这是规划的首轮可用基础，尚未完成全部 P1：网页表格粘贴、国家科技数组、部队部署 UI、建筑迁移及引用联动仍待实现。bridge 追加部署 writer/作者 API、Rewrite 部队结构删除 UI、扩展技能绑定、国家定义与事件树编辑已接入；头像、名称、图集和 manifest 的资源适配已有隔离专项验证。高级区域复制、独立胜负规则编辑、地图变形、XLSX 和独立游戏预览界面仍待接入，事件效果内可配置 Rewrite 已支持的胜负规则。
 
 解除编辑器对 Rewrite 扩展技能的 16 槽位限制仍待完成。
 

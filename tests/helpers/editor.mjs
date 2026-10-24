@@ -51,7 +51,10 @@ export async function startEditor(port, label, existingHome) {
     },
     async request(path, body, expected = 200) {
       const response = await editor.fetch(path, body);
-      const data = await response.json();
+      const text = await response.text();
+      let data;
+      try { data = JSON.parse(text); }
+      catch { throw Error(`Invalid API response: ${path} (${response.status}): ${text.slice(0, 500)}\n${logs.slice(-3500)}`); }
       assert.equal(response.status, expected, JSON.stringify(data));
       return data;
     },

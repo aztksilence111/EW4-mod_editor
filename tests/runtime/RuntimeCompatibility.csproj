@@ -9,6 +9,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="Ew4.Editor" HintPath="$(BridgeOutput)/Ew4.Editor.dll" />
+    <Reference Include="StbImageSharp" HintPath="$(BridgeOutput)/StbImageSharp.dll" />
     <Reference Include="Ew4.Client" HintPath="$(BridgeOutput)/Ew4.Client.dll" />
     <Reference Include="Ew4.Core" HintPath="$(BridgeOutput)/Ew4.Core.dll" />
     <Reference Include="Ew4.Legacy" HintPath="$(BridgeOutput)/Ew4.Legacy.dll" />

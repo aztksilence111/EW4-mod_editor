@@ -9,6 +9,9 @@ using Ew4.Mods;
 using Ew4.Persistence;
 
 string root = Path.GetFullPath(args[0]);
+if (args.Contains("--original-export")) { OriginalExportCompatibility.Run(root); return; }
+if (args.Contains("--event-graphs")) { EventGraphCompatibility.Run(root); return; }
+if (args.Contains("--countries-events")) { CountryEventCompatibility.Run(root); return; }
 if (args.Contains("--deployment-export")) { DeploymentCompatibility.VerifyExport(root); return; }
 if (args.Contains("--deployment")) { DeploymentCompatibility.Run(root); return; }
 if (args.Contains("--structural-browser")) { StructuralBrowserCompatibility.Run(root); return; }
