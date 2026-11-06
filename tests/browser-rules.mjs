@@ -60,9 +60,16 @@ try {
     await page.getByRole('button', { name: '放弃本地草稿', exact: true }).click();
     await expect(workbench).toHaveAttribute('aria-busy', 'false');
     assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+    const layout = await workbench.locator('.rule-layout').boundingBox();
+    const importRow = await page.getByLabel('新规则文件路径').boundingBox();
+    const textArea = await page.getByLabel('规则文件内容').boundingBox();
+    const formatButton = await page.getByRole('button', { name: '格式化 JSON', exact: true }).boundingBox();
+    assert(layout && importRow && importRow.y >= layout.y + layout.height - 1, 'file import overlaps editor');
+    assert(textArea && formatButton && formatButton.y >= textArea.y + textArea.height - 1, 'file controls overlap textarea');
+    await page.getByRole('button', { name: '格式化 JSON', exact: true }).scrollIntoViewIfNeeded();
     assert.deepEqual(errors, []);
     await page.screenshot({ path: `.local/latest-rules/screenshots/rules-${width}.png` });
-    checks.push(width + ': responsive interface without runtime errors');
+    checks.push(width + ': responsive interface without overlaps or runtime errors');
     await page.close();
     const state = await editor.request('author');
     await editor.request('history', { revision: state.revision, direction: 'undo' });

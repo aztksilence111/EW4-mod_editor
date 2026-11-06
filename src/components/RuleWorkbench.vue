@@ -149,3 +149,12 @@ void fetch('/rule-examples.json').then(r => r.ok ? r.json() : []).then(value => 
 <style scoped>
 .rule-workbench { display:flex; flex-direction:column; gap:12px; min-height:0; flex:1; padding:16px 24px; overflow:auto; color:#253237; }p { margin:0; font-size:12px; line-height:1.6; }.rule-actions { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }.rule-layout { display:grid; grid-template-columns:minmax(160px,260px) minmax(0,1fr); gap:12px; min-height:350px; }aside,.rule-editor { display:flex; flex-direction:column; gap:8px; min-width:0; }textarea { flex:1; min-height:320px; font:13px/1.6 Consolas,monospace; tab-size:2; resize:vertical; }input,select,button,textarea { box-sizing:border-box; min-width:0; max-width:100%; border:1px solid #bcc9c9; border-radius:5px; padding:8px; background:white; color:#253237; }aside select { flex:1; width:100%; }strong { overflow-wrap:anywhere; font-size:13px; }button { cursor:pointer; }button:disabled { opacity:.45; cursor:default; }.error { color:#a42f28; }.guide { white-space:pre-wrap; max-height:320px; overflow:auto; background:#edf3ef; padding:12px; font-size:12px; }ul { margin:0; padding-left:20px; font-size:12px; overflow-wrap:anywhere; }label { font-size:12px; }label input { display:block; }@media(max-width:650px) { .rule-workbench { padding:12px; }.rule-layout { grid-template-columns:1fr; }aside select { height:120px; }.rule-editor textarea { min-height:300px; } }
 </style>
+<style scoped>
+.rule-workbench > * { flex-shrink: 0; }
+.rule-layout { flex: none; }
+@media (max-width: 650px) {
+  .rule-layout { min-height: 0; }
+  aside select { flex: none; height: 120px; }
+  .rule-editor textarea { flex: none; height: 360px; }
+}
+</style>
