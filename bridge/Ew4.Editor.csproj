@@ -1,13 +1,16 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
-    <Version>0.2.0</Version>
+    <Version>0.4.0</Version>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <RewriteSnapshot>$(MSBuildProjectDirectory)/../.local/rewrite</RewriteSnapshot>
+    <RewriteSnapshot Condition="'$(RewriteSnapshot)' == '' And Exists('$(MSBuildProjectDirectory)/../.local/r3-20261107/baseline.json')">$(MSBuildProjectDirectory)/../.local/r3-20261107/rewrite</RewriteSnapshot>
+    <RewriteSnapshot Condition="'$(RewriteSnapshot)' == '' And Exists('$(MSBuildProjectDirectory)/../.local/r3/baseline.json')">$(MSBuildProjectDirectory)/../.local/r3/rewrite</RewriteSnapshot>
+    <RewriteSnapshot Condition="'$(RewriteSnapshot)' == ''">$(MSBuildProjectDirectory)/../.local/rewrite</RewriteSnapshot>
   </PropertyGroup>
   <ItemGroup>
+    <Content Include="../dist/**/*" Link="wwwroot/%(RecursiveDir)%(Filename)%(Extension)" CopyToPublishDirectory="PreserveNewest" />
     <ProjectReference Include="$(RewriteSnapshot)/Ew4.Client/Ew4.Client.csproj" />
     <Compile Include="$(RewriteSnapshot)/Ew4.Mods/*.cs" Link="Rewrite/Mods/%(Filename)%(Extension)" />
     <PackageReference Include="AssetRipper.TextureDecoder" Version="2.6.3" />

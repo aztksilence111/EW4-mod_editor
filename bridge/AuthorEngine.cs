@@ -37,6 +37,7 @@ public sealed partial class AuthorEngine
 {
     private readonly object gate = new();
     private readonly string home, data, stateFile, fingerprint;
+    private readonly string engineSourceCommit;
     private readonly ModBase baseline;
     private readonly Dictionary<string, string> sourceHashes;
     private readonly Dictionary<string, byte[]> baseCache = new(StringComparer.Ordinal);
@@ -52,6 +53,7 @@ public sealed partial class AuthorEngine
     {
         this.home = home; data = Path.Combine(home, "rewrite/data"); stateFile = Path.Combine(home, "author.json");
         var manifest = JsonNode.Parse(File.ReadAllBytes(Path.Combine(home, "baseline.json")))!;
+        engineSourceCommit = (string?)manifest["commit"] ?? "unknown";
         sourceHashes = manifest["files"]!.AsObject().Where(p => p.Key.StartsWith("data/", StringComparison.Ordinal))
             .ToDictionary(p => p.Key[5..], p => p.Value!.GetValue<string>(), StringComparer.Ordinal);
         fingerprint = Hash(Bytes(sourceHashes));
@@ -151,7 +153,7 @@ public sealed partial class AuthorEngine
         lock (gate)
         {
             var strings = LegacyCatalogConverter.Strings(Read(state.Files, "original/stringtable_cn.ini"));
-            var catalog = ModFiles.Object(Read(state.Files, "legacy/catalog.json"));
+            var catalog = AuthorCatalog.Read(path => Read(state.Files, path));
             var content = Content(state.Files);
             var skillDefinitions = catalog["skills"]!.AsArray().Where(e => e != null)
                 .ToDictionary(e => (string)e!["id"]!, e => e!, StringComparer.Ordinal);
@@ -289,7 +291,7 @@ public sealed partial class AuthorEngine
                     int before = (int)target.Attribute(field)!;
                     if (before == value) continue;
                     var rule = new BatchRule("commanders", field, "set", value, new());
-                    var range = CommanderRange(field, ModFiles.Object(Read(next, "legacy/catalog.json")));
+                    var range = CommanderRange(field, AuthorCatalog.Read(path => Read(next, path)));
                     int after = Compute(before, rule, range.Min, range.Max);
                     target.SetAttributeValue(field, after); diffs.Add(new(path, "commander:" + id, field, before, after));
                 }
@@ -388,8 +390,7 @@ public sealed partial class AuthorEngine
         ProjectResourceValidation.Check(path => Read(files, path), sourceHashes.Keys.Union(files.Keys).ToHashSet(StringComparer.Ordinal));
     private void SyncCatalogSources(Dictionary<string, byte[]> files)
     {
-        const string path = "legacy/catalog.json";
-        var catalog = ModFiles.Object(Read(files, path));
+        var catalog = AuthorCatalog.Read(p => Read(files, p));
         var hashes = catalog["source_sha256"]?.AsObject() ?? throw new InvalidDataException("运行目录缺少源哈希");
         var trees = catalog["source_trees"]?.AsObject() ?? throw new InvalidDataException("运行目录缺少源树");
         bool changed = false;
@@ -402,7 +403,7 @@ public sealed partial class AuthorEngine
             if (source.EndsWith(".xml", StringComparison.Ordinal))
                 trees[source] = LegacyCatalogConverter.Tree(ModFiles.Xml(Read(files, sourcePath)).Root!);
         }
-        if (changed) files[path] = Bytes(catalog);
+        if (changed) AuthorCatalog.Write(files, p => Read(files, p), catalog);
     }
     private static int Compute(int before, BatchRule rule, int min, int max)
     {
@@ -425,7 +426,7 @@ public sealed partial class AuthorEngine
         }
         string path = registeredPath;
         var bindings = JsonNode.Parse(Read(next, path))?.AsArray() ?? throw new InvalidDataException("将领技能绑定文件必须是数组");
-        var catalog = ModFiles.Object(Read(next, "legacy/catalog.json"));
+        var catalog = AuthorCatalog.Read(p => Read(next, p));
         var skills = catalog["skills"]!.AsArray().Where(s => s != null).Select(s => (string)s!["id"]!)
             .Concat(Content(next).Extensions.Bus.Skills.Keys).ToHashSet(StringComparer.Ordinal);
         if (!skills.Contains(rule.SkillId)) throw new InvalidDataException("技能未注册: " + rule.SkillId);
@@ -463,7 +464,7 @@ public sealed partial class AuthorEngine
     }
     private void EditLegacyCommanderBindings(Dictionary<string, byte[]> next, BatchRule rule, List<Diff> diffs)
     {
-        string path = "legacy/catalog.json"; var catalog = ModFiles.Object(Read(next, path));
+        string path = "legacy/catalog.json"; var catalog = AuthorCatalog.Read(p => Read(next, p));
         var skills = catalog["skills"]!.AsArray().Where(s => s != null).Select(s => (string)s!["id"]!).ToHashSet(StringComparer.Ordinal);
         if (!skills.Contains(rule.SkillId!)) throw new InvalidDataException("技能未注册: " + rule.SkillId);
         var selected = rule.Filter.Ids?.ToHashSet() ?? [];
@@ -488,7 +489,7 @@ public sealed partial class AuthorEngine
             entry["skill_slots"] = new JsonArray(slots.ToArray()); entry["skills"] = new JsonArray(after.Select(s => (JsonNode)JsonValue.Create(s)!).ToArray());
             diffs.Add(new(path, "commander:" + id, "skillBinding", string.Join(',', before), string.Join(',', after)));
         }
-        if (diffs.Any(d => d.File == path)) next[path] = Bytes(catalog);
+        if (diffs.Any(d => d.File == path)) AuthorCatalog.Write(next, p => Read(next, p), catalog);
     }
     private string? CommanderBindingsPath(Dictionary<string, byte[]> files)
     {
@@ -505,7 +506,7 @@ public sealed partial class AuthorEngine
     {
         string path = "original/def_commander.xml"; var xml = ModFiles.Xml(Read(next, path));
         if (!CommanderFields.Contains(rule.Field)) throw new InvalidDataException("将领字段不在首版支持范围");
-        var catalog = ModFiles.Object(Read(next, "legacy/catalog.json"));
+        var catalog = AuthorCatalog.Read(p => Read(next, p));
         var range = CommanderRange(rule.Field, catalog);
         foreach (var row in xml.Root!.Elements())
         {
@@ -527,7 +528,7 @@ public sealed partial class AuthorEngine
              _ when field.StartsWith("skill", StringComparison.Ordinal) => 39, _ => 32767 });
     private void ConvertCommanders(Dictionary<string, byte[]> next)
     {
-        var current = ModFiles.Object(Read(next, "legacy/catalog.json"));
+        var current = AuthorCatalog.Read(p => Read(next, p));
         var converted = LegacyCatalogConverter.Convert(name => Read(next, "original/" + name), current);
         var oldCommanders = current["commanders"]!.AsArray().ToDictionary(e => (string)e!["id"]!, e => e!);
         foreach (var entry in converted["commanders"]!.AsArray())
@@ -542,7 +543,7 @@ public sealed partial class AuthorEngine
         foreach (string field in new[] { "commanders" }) current[field] = converted[field]!.DeepClone();
         current["source_sha256"]!["def_commander.xml"] = converted["source_sha256"]!["def_commander.xml"]!.DeepClone();
         current["source_trees"]!["def_commander.xml"] = converted["source_trees"]!["def_commander.xml"]!.DeepClone();
-        next["legacy/catalog.json"] = Bytes(current);
+        AuthorCatalog.Write(next, p => Read(next, p), current);
     }
     private static bool MatchCountry(Selection filter, string? country) => string.IsNullOrWhiteSpace(filter.Country) || filter.Country == country;
     private static string[] ExtensionTags(byte[] bytes, int bodyLength)

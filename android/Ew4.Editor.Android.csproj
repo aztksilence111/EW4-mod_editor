@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-android</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <ApplicationId>org.ew4.modeditor</ApplicationId>
+    <ApplicationTitle>EW4 Mod 编辑器</ApplicationTitle>
+    <ApplicationVersion>3</ApplicationVersion>
+    <ApplicationDisplayVersion>0.4.0</ApplicationDisplayVersion>
+    <SupportedOSPlatformVersion>26</SupportedOSPlatformVersion>
+    <RuntimeIdentifier>android-arm64</RuntimeIdentifier>
+    <AndroidPackageFormats>apk</AndroidPackageFormats>
+    <PublishTrimmed>false</PublishTrimmed>
+    <RunAOTCompilation>false</RunAOTCompilation>
+    <AndroidEnableMarshalMethods>false</AndroidEnableMarshalMethods>
+    <RewriteSnapshot Condition="'$(RewriteSnapshot)' == ''">$(MSBuildProjectDirectory)/../.local/r3-20261107/rewrite</RewriteSnapshot>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="$(RewriteSnapshot)/Ew4.Client/Ew4.Client.csproj" />
+    <Compile Include="../bridge/*.cs" Exclude="../bridge/Program.cs" Link="Editor/%(Filename)%(Extension)" />
+    <Compile Include="$(RewriteSnapshot)/Ew4.Mods/*.cs" Link="Rewrite/Mods/%(Filename)%(Extension)" />
+    <PackageReference Include="AssetRipper.TextureDecoder" Version="2.6.3" />
+    <PackageReference Include="StbImageSharp" Version="2.30.15" />
+    <PackageReference Include="StbImageWriteSharp" Version="1.16.7" />
+    <AndroidAsset Include="../dist/**/*" Link="www/%(RecursiveDir)%(Filename)%(Extension)" />
+    <AndroidAsset Include="native.js" Link="www/native.js" />
+    <AndroidAsset Include="$(RewriteSnapshot)/data/**/*" Link="baseline/rewrite/data/%(RecursiveDir)%(Filename)%(Extension)" />
+    <AndroidAsset Include="$(RewriteSnapshot)/player/**/*" Link="baseline/rewrite/player/%(RecursiveDir)%(Filename)%(Extension)" />
+    <AndroidAsset Include="$(RewriteSnapshot)/../baseline.json" Link="baseline/baseline.json" />
+  </ItemGroup>
+</Project>

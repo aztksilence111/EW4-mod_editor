@@ -48,6 +48,8 @@ public sealed partial class AuthorEngine
             if (result.TryAdd(path, Read(prepared, path))) pending.Enqueue(path);
         }
         Include("legacy/catalog.json");
+        if (AuthorCatalog.Load(path => Read(prepared, path)).IsSplit)
+            foreach (string part in Ew4.Legacy.LegacyCatalogFiles.PartNames.Concat(["runtime_rule_tables.json", "metagame_rule_tables.json"])) Include("legacy/" + part);
         Include("client/manifest.json");
         if (scope == "commanders") Include("original/def_commander.xml");
         else

@@ -2,11 +2,13 @@ import type { BtlProject, BinProject } from '../formats/types'
 
 export interface ProjectPack {
   version: 1
+  target?: 'original'
   savedAt: number
   sourceName: string
   project: any | null
   terrain: any | null
   config: any | null
+  originalCommanderXml?: string
 }
 
 export function serializeProject(p: BtlProject): any {

@@ -24,6 +24,7 @@ dist-ssr
 *.sw?
 
 .local/
+release/
 .tmp/
 **/bin/
 **/obj/

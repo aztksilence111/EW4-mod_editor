@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"><title>剧情预览</title>
+<link rel="stylesheet" href="/editor-api/player/story-player.css"><style>[hidden]{display:none!important}</style>
+<style>html,body{margin:0;background:#101416;height:100%;font-family:system-ui}#status{color:white;position:fixed;inset:40% 12px auto;text-align:center}button,input,select{font:inherit}button{cursor:pointer}.story-toolbar button,.story-close{width:40px;height:40px;border:0;color:white;background:transparent}.story-toolbar img,.story-close img{width:22px;height:22px}.story-auto{width:72px!important;display:flex;align-items:center;gap:4px}.story-choice-list button{font:inherit}</style>
+</head><body><div id="status" role="status"></div><script src="/editor-api/player/story-player.js"></script><script>
+'use strict';
+let session, state;
+const status = document.getElementById('status');
+function notice(message) { status.textContent = message; }
+function media(path) {
+  if (!path) return path;
+  const source = path.startsWith('/content/extensions/') ? 'rewrite/' + path.slice(20) : 'client/' + path.slice(9);
+  return '/editor-api/story-image?session=' + encodeURIComponent(session) + '&path=' + encodeURIComponent(source);
+}
+async function sync(response) {
+  if (!response.ok) throw Error(response.message);
+  state = response.data;
+  const story = state.story;
+  if (story) {
+    story.background = media(story.background);
+    for (const actor of story.actors) { actor.image = media(actor.image); for (const layer of actor.layers) layer.image = media(layer.image); }
+  }
+  notice(story ? '' : '播放结束');
+  await player.sync(story);
+}
+const player = new Ew4StoryUI.Player({ notice, prepare: async () => { await document.fonts.ready; }, act: async (op, args) => {
+  const response = await fetch('/editor-api/story-action', { method: 'POST', headers: { 'Content-Type':'application/json','X-EW4-Editor':'1' },
+    body: JSON.stringify({ session, op, revision: state.revision, ...args }) });
+  const data = await response.json(); if (!response.ok) throw Error(data.error); await sync(data);
+} });
+addEventListener('message', event => {
+  if (event.source !== parent || event.origin !== location.origin || event.data?.type !== 'ew4-story-start') return;
+  session = event.data.session; sync(event.data.response).catch(e => notice(e.message));
+});
+parent.postMessage({type:'ew4-story-ready'}, location.origin);
+</script></body></html>

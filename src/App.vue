@@ -11,7 +11,7 @@ import ConfigPanel from './components/ConfigPanel.vue'
 import MapSelectDialog from './components/MapSelectDialog.vue'
 import CampaignSelectDialog from './components/CampaignSelectDialog.vue'
 import ConquestSelectDialog from './components/ConquestSelectDialog.vue'
-import { parseBtl, serializeBtl } from './core/formats/btl'
+import { parseBtl, serializeBtl, assertOriginalBtl } from './core/formats/btl'
 import { assertValidBtlReferences } from './core/formats/btlValidation'
 import { parseBin, serializeBin } from './core/formats/bin'
 import { loadBuiltinMap } from './core/data/builtinMaps'
@@ -28,25 +28,51 @@ import {
 import type { BtlProject, BinProject } from './core/formats/types'
 import ActualDisplayDialog from './components/ActualDisplayDialog.vue'
 import RewriteWorkbench from './components/RewriteWorkbench.vue'
+import OriginalCommanderWorkbench from './components/OriginalCommanderWorkbench.vue'
+import { originalCommanderXml, readOriginalCommanders } from './core/editor/originalCommanders'
 import type { ScenarioView } from './core/editor/api'
+import type { PlaceLabel } from './core/editor/placeLabels'
 
 const rewriteMode = ref(true)
 const contentWorkspace = ref(false)
+const originalContentWorkspace = ref(false)
+const originalCommanderDefinition = ref(originalCommanderXml)
 const workbench = ref<InstanceType<typeof RewriteWorkbench> | null>(null)
+const mapView = ref<InstanceType<typeof MapView> | null>(null)
+const rewritePlaces = ref<PlaceLabel[]>([])
 const selectedCells = ref<number[]>([])
 const jurisdictionCenters = ref<number[] | null>(null)
 const jurisdictionPreview = ref<number[] | null>(null)
 const jurisdictionFocus = ref<number | null>(null)
 const showJurisdictions = ref(false)
+let rewriteSnapshot: { p: BtlProject; t: BinProject; view: ScenarioView } | null = null
+let legacySnapshot: { p: BtlProject | null; t: BinProject | null; status: string } | null = null
 function onRewriteLoaded(p: BtlProject, t: BinProject, view: ScenarioView) {
+  rewriteSnapshot = { p, t, view }
+  if (!rewriteMode.value) return
   project.value = p; terrain.value = t; jurisdictionCenters.value = view.jurisdictions ?? view.effectiveJurisdictions
   jurisdictionPreview.value = null
   selectedTile.value = null; changeVersion.value++; updateStatus(view.id)
 }
-function useLegacyMode() {
+async function useLegacyMode() {
+  if (saveTimer !== null) { clearTimeout(saveTimer); saveTimer = null }
   rewriteMode.value = false; project.value = null; terrain.value = null
   selectedCells.value = []; jurisdictionCenters.value = null; showJurisdictions.value = false
-  showMapSelect.value = true
+  jurisdictionPreview.value = null; jurisdictionFocus.value = null
+  selectedTile.value = null; openWindow.value = ''; clipActive.value = false; showActualDisplay.value = false
+  if (legacySnapshot) { project.value = legacySnapshot.p; terrain.value = legacySnapshot.t; status.value = legacySnapshot.status }
+  else await restoreDraft()
+  if (rewriteMode.value) return
+  showMapSelect.value = !terrain.value && !originalContentWorkspace.value
+}
+async function useRewriteMode() {
+  await doSave()
+  legacySnapshot = { p: project.value, t: terrain.value, status: status.value }
+  if (saveTimer !== null) { clearTimeout(saveTimer); saveTimer = null }
+  rewriteMode.value = true; project.value = null; terrain.value = null; selectedTile.value = null
+  showMapSelect.value = false; showCampaignSelect.value = false; showConquestSelect.value = false
+  openWindow.value = ''; clipActive.value = false; showActualDisplay.value = false
+  if (rewriteSnapshot) onRewriteLoaded(rewriteSnapshot.p, rewriteSnapshot.t, rewriteSnapshot.view)
 }
 
 const openWindow = ref<string>('')
@@ -97,6 +123,8 @@ async function doSave() {
   saveInFlight = true
   try {
     const p = project.value
+    if (p) assertOriginalBtl(p)
+    readOriginalCommanders(originalCommanderDefinition.value)
     const t = terrain.value
     const rawRecord = {
       projectRaw: p ? serializeProject(p) : null,
@@ -104,6 +132,7 @@ async function doSave() {
       selectedTile: selectedTile.value,
       sourceName: status.value,
       savedAt: Date.now(),
+      originalCommanderXml: originalCommanderDefinition.value,
     }
     // 用 JSON 深拷贝，剥离所有 Proxy / 非普通对象
     const plainRecord = JSON.parse(JSON.stringify(rawRecord))
@@ -126,7 +155,7 @@ function scheduleSave() {
 }
 
 watch(
-  () => [changeVersion.value, terrain.value, selectedTile.value],
+  () => [changeVersion.value, terrain.value, selectedTile.value, originalCommanderDefinition.value],
   () => scheduleSave(),
   { deep: false }
 )
@@ -136,8 +165,9 @@ watch(
 async function restoreDraft() {
   try {
     const d = await loadDraft()
+    if (rewriteMode.value) return
     if (!d) return
-    if (!d.projectRaw && !d.terrainRaw) return
+    if (!d.projectRaw && !d.terrainRaw && !d.originalCommanderXml) return
 
     const when = new Date(d.savedAt).toLocaleString()
     const ok = confirm(
@@ -147,8 +177,12 @@ async function restoreDraft() {
       await clearDraft()
       return
     }
+    const restored = d.projectRaw ? reviveProject(d.projectRaw) : null
+    if (restored) assertOriginalBtl(restored)
+    if (d.originalCommanderXml) readOriginalCommanders(d.originalCommanderXml)
+    originalCommanderDefinition.value = d.originalCommanderXml ?? originalCommanderXml
     if (d.terrainRaw) terrain.value = reviveTerrain(d.terrainRaw)
-    if (d.projectRaw) project.value = reviveProject(d.projectRaw)
+    if (restored) project.value = restored
     if (d.selectedTile) selectedTile.value = d.selectedTile
     status.value = d.sourceName || '已恢复草稿'
     changeVersion.value++
@@ -201,6 +235,7 @@ async function onImportFile(file: File) {
     const buffer = await readFileAsArrayBuffer(file)
     if (!buffer || buffer.byteLength === 0) throw new Error('文件内容为空')
     const p = parseBtl(buffer)
+    assertOriginalBtl(p)
     project.value = p
     changeVersion.value++
     updateStatus(file.name)
@@ -305,6 +340,7 @@ function onExport() {
     assertValidBtlReferences(project.value, terrain.value
       ? { width: terrain.value.info.mapW, height: terrain.value.info.mapH }
       : undefined)
+    assertOriginalBtl(project.value)
     const buf = serializeBtl(project.value)
     const blob = new Blob([buf], { type: 'application/octet-stream' })
     const url = URL.createObjectURL(blob)
@@ -344,13 +380,18 @@ function onExportTerrainBin() {
 /* ============ 工程包 ============ */
 
 function buildPack(): ProjectPack {
+  if (rewriteMode.value) throw new Error('R 版工程请使用 .ew4author 导出')
+  if (project.value) assertOriginalBtl(project.value)
+  readOriginalCommanders(originalCommanderDefinition.value)
   return {
     version: 1,
+    target: 'original',
     savedAt: Date.now(),
     sourceName: status.value,
     project: project.value ? serializeProject(project.value) : null,
     terrain: terrain.value ? serializeTerrain(terrain.value) : null,
     config: JSON.parse(exportConfig()),
+    originalCommanderXml: originalCommanderDefinition.value,
   }
 }
 
@@ -391,16 +432,20 @@ function onImportPackClick() {
       const text = reader.result as string
       try {
         const pack: ProjectPack = JSON.parse(text)
-        if (!pack || typeof pack !== 'object') throw new Error('格式错误')
+        if (!pack || pack.version !== 1 || pack.target && pack.target !== 'original') throw new Error('仅支持原版 .ew4p 工程')
+        const imported = pack.project ? reviveProject(pack.project) : null
+        if (imported) assertOriginalBtl(imported)
+        if (pack.originalCommanderXml) readOriginalCommanders(pack.originalCommanderXml)
+        originalCommanderDefinition.value = pack.originalCommanderXml ?? originalCommanderXml
         if (pack.terrain) terrain.value = reviveTerrain(pack.terrain)
-        if (pack.project) project.value = reviveProject(pack.project)
+        if (imported) project.value = imported
         if (pack.config) importConfig(JSON.stringify(pack.config))
         status.value = `已导入工程：${file.name}`
         changeVersion.value++
         alert('导入工程成功')
       } catch (e) {
         console.error(e)
-        alert('导入工程失败：文件格式不正确')
+        alert('导入工程失败：' + (e instanceof Error ? e.message : String(e)))
       }
     }
     reader.readAsText(file)
@@ -522,6 +567,9 @@ onMounted(async () => {
     try {
       if (embedded.terrain) terrain.value = reviveTerrain(embedded.terrain)
       if (embedded.project) project.value = reviveProject(embedded.project)
+      if (project.value) assertOriginalBtl(project.value)
+      if (embedded.originalCommanderXml) readOriginalCommanders(embedded.originalCommanderXml)
+      originalCommanderDefinition.value = embedded.originalCommanderXml ?? originalCommanderXml
       if (embedded.config) importConfig(JSON.stringify(embedded.config))
       if (embedded.sourceName) status.value = embedded.sourceName
       changeVersion.value++
@@ -540,10 +588,10 @@ onMounted(async () => {
 
 <template>
   <div class="app">
-    <RewriteWorkbench v-if="rewriteMode" ref="workbench" @workspace="contentWorkspace = $event" @loaded="onRewriteLoaded" @selection="selectedCells = $event" @layer="showJurisdictions = $event" @jurisdiction-preview="jurisdictionPreview = $event" @jurisdiction-focus="jurisdictionFocus = $event" @legacy="useLegacyMode" />
-    <button v-else class="return-rewrite" @click="rewriteMode = true; showMapSelect = false; openWindow = ''">返回 Rewrite 工程</button>
+    <div v-show="rewriteMode" class="rewrite-host"><RewriteWorkbench ref="workbench" @workspace="contentWorkspace = $event" @loaded="onRewriteLoaded" @selection="selectedCells = $event" @layer="showJurisdictions = $event" @jurisdiction-preview="jurisdictionPreview = $event" @jurisdiction-focus="jurisdictionFocus = $event" @places="rewritePlaces = $event" @locate="mapView?.locateCell($event)" @legacy="useLegacyMode" /></div>
+    <nav v-if="!rewriteMode" class="version-switch" aria-label="游戏版本"><button aria-pressed="true">原版</button><button aria-pressed="false" @click="useRewriteMode">R 版</button><span class="workspace-tabs"><button :aria-pressed="!originalContentWorkspace" @click="originalContentWorkspace = false">地图编辑</button><button :aria-pressed="originalContentWorkspace" @click="originalContentWorkspace = true; showMapSelect = false; openWindow = ''">内容编辑</button></span></nav>
     <TopBar
-      v-if="!rewriteMode"
+      v-if="!rewriteMode && !originalContentWorkspace"
       :status="status"
       :project="project"
       :terrain-mode="terrainMode"
@@ -571,9 +619,14 @@ onMounted(async () => {
       @close="showActualDisplay = false"
     />
 
-    <div v-show="!rewriteMode || !contentWorkspace" class="map-container">
+    <OriginalCommanderWorkbench v-show="!rewriteMode && originalContentWorkspace" v-model:xml="originalCommanderDefinition" @map="originalContentWorkspace = false" @save="onSaveNow" @export-pack="onExportPack" @import-pack="onImportPackClick" />
+
+    <div v-show="rewriteMode ? !contentWorkspace : !originalContentWorkspace" class="map-container">
       <MapView
+        ref="mapView"
         :project="project"
+        :place-labels="rewriteMode ? rewritePlaces : undefined"
+        :place-centers="rewriteMode ? jurisdictionPreview ?? jurisdictionCenters : null"
         :terrain="terrain"
         :mode="mode"
         :selected="selectedTile"
@@ -635,7 +688,7 @@ onMounted(async () => {
       </WindowFrame>
     </div>
 
-    <BottomTabs v-if="!rewriteMode" :active="openWindow" @change="onTabChange" />
+    <BottomTabs v-if="!rewriteMode && !originalContentWorkspace" :active="openWindow" @change="onTabChange" />
 
     <MapSelectDialog
       v-if="showMapSelect"
@@ -667,6 +720,12 @@ onMounted(async () => {
   height: 100dvh;
 }
 .return-rewrite { border:0; padding:5px; color:#153f31; background:#dbe9e1; }
+.rewrite-host { display:contents; }
+.version-switch { display:flex; gap:4px; background:#f4f6f6; padding:6px 12px; }
+.workspace-tabs { display:flex; gap:4px; margin-left:auto; }
+.version-switch button { border:1px solid #b4c6bf; padding:6px 18px; border-radius:4px; color:#254b3c; }
+.version-switch button[aria-pressed=true] { background:#236d59; color:white; }
+@media(max-width:500px) { .version-switch { padding:6px; flex-wrap:wrap; }.version-switch button { padding:6px 10px; font-size:12px; } }
 .map-container {
   flex: 1 1 auto;
   min-height: 0;

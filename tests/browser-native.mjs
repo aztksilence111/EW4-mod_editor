@@ -1,0 +1,50 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { chromium, expect } from '@playwright/test';
+import { startEditor, root } from './helpers/editor.mjs';
+import { join } from 'node:path';
+
+const editor = await startEditor(5218, 'native-transport');
+const browser = await chromium.launch({ channel: 'msedge', headless: true });
+const saved = [];
+try {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  await context.exposeBinding('testNativeRequest', async ({ page }, id, method, target, body) => {
+    const response = await editor.fetch(target.split('/editor-api/')[1], method === 'POST' ? JSON.parse(body) : undefined);
+    const reply = { status: response.status, contentType: response.headers.get('content-type'), bytes: Buffer.from(await response.arrayBuffer()).toString('base64') };
+    await page.evaluate(({ id, reply }) => window.ew4NativeReply(id, reply), { id, reply });
+  });
+  await context.exposeBinding('testNativeSave', (_, name, bytes) => saved.push({ name, bytes }));
+  await context.addInitScript({ content: 'window.ew4Native={request:(...args)=>window.testNativeRequest(...args),save:(...args)=>window.testNativeSave(...args)};\n' + readFileSync(join(root, 'android/native.js'), 'utf8') });
+  const page = await context.newPage(); const errors = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.route('**/editor-api/**', async route => { const response = await route.fetch({ url: editor.base + route.request().url().split('/editor-api/')[1], timeout: 180000 }); await route.fulfill({ response }); });
+  await page.goto(process.env.EW4_EDITOR_UI_URL || 'http://127.0.0.1:5175');
+  await expect(page.getByLabel('当前剧本', { exact: true })).toBeEnabled({ timeout: 120000 });
+  await page.getByRole('button', { name: '内容编辑', exact: true }).click();
+  await page.getByRole('button', { name: '剧情', exact: true }).click();
+  await expect(page.locator('.story-editor')).toHaveAttribute('aria-busy', 'false', { timeout: 120000 });
+  await page.getByTitle('新增场景', { exact: true }).click();
+  await page.getByLabel('剧情台词', { exact: true }).fill('Android 本地桥接预览。');
+  await page.getByRole('button', { name: '播放预览', exact: true }).click();
+  await expect(page.frameLocator('iframe[title="剧情播放器"]').locator('.story-text')).toHaveText('Android 本地桥接预览。', { timeout: 20000 });
+  await page.getByTitle('关闭剧情预览', { exact: true }).click();
+  await page.evaluate(async () => { const r = await fetch('/editor-api/author'); const blob = await r.blob(); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'native-project.ew4author'; a.click(); });
+  await expect.poll(() => saved.length).toBe(1);
+  assert.equal(saved[0].name, 'native-project.ew4author');
+  assert.equal(JSON.parse(Buffer.from(saved[0].bytes, 'base64')).schema, 2);
+  await page.getByRole('button', { name: '原版', exact: true }).click();
+  await page.locator('.mask:visible .dialog-head .close').click();
+  await page.getByRole('button', { name: '内容编辑', exact: true }).click();
+  const original = page.locator('.original-content');
+  await original.getByLabel('导入原版将领 CSV 文件').setInputFiles({ name: 'original.csv', mimeType: 'text/csv', buffer: Buffer.from('schema,id,cavalry\n1,1,6') });
+  await expect(original.locator('.diff-table tbody tr')).toHaveCount(1);
+  await original.getByRole('button', { name: '应用配置', exact: true }).click();
+  await original.getByRole('button', { name: '导出将领 XML', exact: true }).click();
+  await expect.poll(() => saved.length).toBe(2);
+  assert.equal(saved[1].name, 'def_commander.xml');
+  const nativeXml = Buffer.from(saved[1].bytes, 'base64').toString('utf8');
+  assert(nativeXml.includes('cavalry="6"')); assert(!nativeXml.includes('skillBinding'));
+  assert.deepEqual(errors, []);
+  console.log(JSON.stringify({ passed: 4, checks: ['native async JSON and binary fetch', 'iframe uses main window native request broker', 'blob download reaches native save bridge', 'original commander CSV preview/apply and XML reach native save bridge'], deviceTested: false }));
+} finally { await browser.close(); await editor.stop(); }

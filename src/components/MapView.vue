@@ -6,6 +6,7 @@ import { UNITS, unitBadgeText, campColor } from '../core/data/units'
 import { getBuildingSymbol, getStrongPointHighlight, getDefenseIcon, getCapitalSprite } from '../core/data/buildings'
 import { getCityById } from '../core/data/cities'
 import { editorConfig, getCityDisplayName, getUnitAbbr } from '../core/data/config'
+import type { PlaceLabel } from '../core/editor/placeLabels'
 import {
   commanderAtlasHd,
   commanderAtlasLd,
@@ -35,6 +36,8 @@ const props = defineProps<{
   selectedCells?: number[]
   jurisdictionCenters?: number[] | null
   jurisdictionFocus?: number | null
+  placeLabels?: PlaceLabel[]
+  placeCenters?: number[] | null
   changeVersion?: number
   terrainMode?: boolean
   clipActive?: boolean
@@ -48,6 +51,15 @@ const emit = defineEmits<{
 
 const wrapRef = ref<HTMLDivElement | null>(null)
 const canvasRef = ref<HTMLCanvasElement | null>(null)
+const placeByCell = computed(() => new Map(props.placeLabels?.map(p => [p.cell, p]) ?? []))
+const hover = ref<{ cell: number; x: number; y: number } | null>(null)
+const hoverPlace = computed(() => {
+  if (!hover.value || !props.project || !props.terrain) return null
+  const cell = hover.value.cell, p = props.project
+  const x = cell % props.terrain.info.mapW - p.info.mapX, y = Math.floor(cell / props.terrain.info.mapW) - p.info.mapY
+  const center = x >= 0 && x < p.info.mapW && y >= 0 && y < p.info.mapH ? props.placeCenters?.[y * p.info.mapW + x] : -1
+  return placeByCell.value.get(cell) ?? placeByCell.value.get(center ?? -1)
+})
 
 const HEX_W = 32
 const HEX_H = 36
@@ -686,6 +698,32 @@ function drawCityLabel(col: number, row: number, areaName: number) {
   ctx.strokeText(name, cx, ty); ctx.fillStyle = '#fef3c7'; ctx.fillText(name, cx, ty)
 }
 
+function drawPlaceLabels() {
+  if (!ctx || !canvasRef.value || !props.terrain || !props.placeLabels) return
+  const width = canvasRef.value.width / dpr, height = canvasRef.value.height / dpr
+  const boxes: { left: number; right: number; top: number; bottom: number }[] = []
+  const focus = props.jurisdictionFocus
+  const ordered = [...props.placeLabels].sort((a, b) => Number(b.cell === focus) - Number(a.cell === focus) || Number(b.named) - Number(a.named))
+  ctx.save()
+  ctx.font = `bold ${12 / view.scale}px "Microsoft YaHei",sans-serif`
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top'
+  for (const place of ordered) {
+    if (!place.named && view.scale < 1.2 && place.cell !== focus) continue
+    const { cx, cy } = hexCenter(place.cell % props.terrain.info.mapW, Math.floor(place.cell / props.terrain.info.mapW))
+    const sx = cx * view.scale + view.offsetX, sy = cy * view.scale + view.offsetY
+    const length = ctx.measureText(place.label).width * view.scale
+    const box = { left: sx - length / 2 - 3, right: sx + length / 2 + 3, top: sy + 12, bottom: sy + 29 }
+    if (box.right < 0 || box.left > width || box.bottom < 0 || box.top > height) continue
+    if (boxes.some(b => box.left < b.right && box.right > b.left && box.top < b.bottom && box.bottom > b.top)) continue
+    boxes.push(box)
+    ctx.lineWidth = 3 / view.scale; ctx.strokeStyle = '#182b25'
+    ctx.strokeText(place.label, cx, cy + 12 / view.scale)
+    ctx.fillStyle = place.cell === focus ? '#ffda63' : '#ffffff'
+    ctx.fillText(place.label, cx, cy + 12 / view.scale)
+  }
+  ctx.restore()
+}
+
 function drawTerrainOverlay(col: number, row: number, foreTile: number, foreIdx: number) {
   if (!ctx) return
   if (foreTile === 0 || foreTile === 255) return
@@ -986,8 +1024,7 @@ function draw() {
       const gy = Math.floor(build.index / binW)
       if (gx < 0 || gx >= mw || gy < 0 || gy >= mh) continue
       if (build.constructionType === 0xff) continue
-      if (build.bridges.some((m) => m > 0 && m < 64)) continue
-                  drawBuildingBlock(
+      drawBuildingBlock(
         gx, gy,
         build.constructionType,
         build.constructionLevel,
@@ -1059,8 +1096,7 @@ function draw() {
       const gy = Math.floor(build.index / binW)
       if (gx < 0 || gx >= mw || gy < 0 || gy >= mh) continue
       if (build.constructionType === 0xff) continue
-      if (build.bridges.some((m) => m > 0 && m < 64)) continue
-      drawCityLabel(gx, gy, build.areaName)
+      if (!props.placeLabels) drawCityLabel(gx, gy, build.areaName)
     }
   }
 
@@ -1157,10 +1193,10 @@ function draw() {
     const cell = props.jurisdictionFocus
     const { cx, cy } = hexCenter(cell % t.info.mapW, Math.floor(cell / t.info.mapW))
     ctx.save()
-    ctx.strokeStyle = '#ffda63'; ctx.fillStyle = '#263832'; ctx.lineWidth = 2 / view.scale
-    ctx.beginPath(); ctx.arc(cx, cy, 9 / view.scale, 0, Math.PI * 2); ctx.fill(); ctx.stroke()
+    ctx.strokeStyle = '#ffda63'; ctx.lineWidth = 2 / view.scale
+    ctx.beginPath(); ctx.arc(cx, cy, 14 / view.scale, 0, Math.PI * 2); ctx.stroke()
     ctx.fillStyle = '#ffda63'; ctx.font = `${12 / view.scale}px system-ui`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
-    ctx.fillText(String(cell), cx, cy - 18 / view.scale)
+    if (!placeByCell.value.has(cell)) ctx.fillText(String(cell), cx, cy - 18 / view.scale)
     ctx.restore()
   }
   if (props.selected) {
@@ -1170,6 +1206,7 @@ function draw() {
     hexPath(cx, cy); ctx.stroke()
   }
 
+  drawPlaceLabels()
   ctx.restore()
 }
 
@@ -1212,6 +1249,7 @@ function clampScale(s: number) {
 }
 
 function onPointerDown(e: PointerEvent) {
+  hover.value = null
   ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
   dragging = true
   dragStartX = e.clientX; dragStartY = e.clientY
@@ -1219,7 +1257,14 @@ function onPointerDown(e: PointerEvent) {
   dragMoved = false
 }
 function onPointerMove(e: PointerEvent) {
-  if (!dragging) return
+  if (!dragging) {
+    const rect = canvasRef.value?.getBoundingClientRect()
+    if (!rect || !props.terrain || !props.placeLabels) return
+    const x = e.clientX - rect.left, y = e.clientY - rect.top
+    const hit = pixelToHex((x - view.offsetX) / view.scale, (y - view.offsetY) / view.scale)
+    hover.value = hit ? { cell: hit.row * props.terrain.info.mapW + hit.col, x: Math.max(4, Math.min(x + 12, rect.width - 230)), y: Math.max(4, y - 58) } : null
+    return
+  }
   if (Math.abs(e.clientX - dragStartX) > 5 || Math.abs(e.clientY - dragStartY) > 5) dragMoved = true
   view.offsetX += e.clientX - lastX
   view.offsetY += e.clientY - lastY
@@ -1241,6 +1286,7 @@ function onPointerUp(e: PointerEvent) {
   }
 }
 function onWheel(e: WheelEvent) {
+  hover.value = null
   e.preventDefault()
   const canvas = canvasRef.value
   if (!canvas) return
@@ -1258,6 +1304,19 @@ function onWheel(e: WheelEvent) {
   view.scale = next
   draw()
 }
+
+function locateCell(cell: number) {
+  const canvas = canvasRef.value, terrain = props.terrain
+  if (!canvas || !terrain || cell < 0 || cell >= terrain.tiles.length) return
+  const { cx, cy } = hexCenter(cell % terrain.info.mapW, Math.floor(cell / terrain.info.mapW))
+  const width = canvas.width / dpr, height = canvas.height / dpr
+  view.scale = clampScale(Math.max(view.scale, 1.2))
+  view.offsetX = width * (width >= 800 ? .36 : .5) - cx * view.scale
+  view.offsetY = height * (width >= 800 ? .48 : .86) - cy * view.scale
+  hover.value = null
+  draw()
+}
+defineExpose({ locateCell })
 function onTouchStart(e: TouchEvent) {
   if (e.touches.length === 2) {
     dragging = false
@@ -1303,7 +1362,7 @@ let resizeObserver: ResizeObserver | null = null
 // 只重绘，不动视图
 watch(
   () => [
-    props.mode, props.selected, props.changeVersion, props.selectedCells, props.jurisdictionCenters, props.jurisdictionFocus,
+    props.mode, props.selected, props.changeVersion, props.selectedCells, props.jurisdictionCenters, props.jurisdictionFocus, props.placeLabels,
     props.terrainMode, props.clipStart, props.clipEnd,
     editorConfig.value.displayMode,
     editorConfig.value.display.buildingAlpha,
@@ -1368,6 +1427,7 @@ onBeforeUnmount(() => {
       ref="canvasRef"
       @pointerdown="onPointerDown"
       @pointermove="onPointerMove"
+      @pointerleave="hover = null"
       @pointerup="onPointerUp"
       @pointercancel="onPointerUp"
       @wheel="onWheel"
@@ -1375,10 +1435,13 @@ onBeforeUnmount(() => {
       @touchmove="onTouchMove"
       @touchend="onTouchEnd"
     ></canvas>
+    <div v-if="hover && hoverPlace" class="place-tooltip" :style="{ left: hover.x + 'px', top: hover.y + 'px' }" role="tooltip"><strong>{{ hoverPlace.label }}</strong><span>{{ hoverPlace.countryName }}辖区 · 地块 #{{ hover.cell }}</span></div>
   </div>
 </template>
 
 <style scoped>
 .map-wrap { position: relative; width: 100%; height: 100%; overflow: hidden; background: #0b1220; }
 canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+.place-tooltip { position:absolute; pointer-events:none; z-index:5; max-width:222px; padding:6px 9px; border:1px solid #bcc9c9; border-radius:4px; background:#f8faf9; color:#253237; font-size:12px; line-height:1.5; overflow-wrap:anywhere; }
+.place-tooltip strong,.place-tooltip span { display:block; }
 </style>

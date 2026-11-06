@@ -8,7 +8,7 @@ async function load(file) {
   const text = ts.transpileModule(readFileSync(resolve(file), 'utf8'), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText;
   return import('data:text/javascript;base64,' + Buffer.from(text).toString('base64'));
 }
-const { parseBtl, serializeBtl } = await load('src/core/formats/btl.ts');
+const { parseBtl, serializeBtl, assertOriginalBtl } = await load('src/core/formats/btl.ts');
 const { inspectBtlReferences, assertValidBtlReferences } = await load('src/core/formats/btlValidation.ts');
 const transactionSource = readFileSync('src/core/formats/btlTransactions.ts', 'utf8').replace(/^import .*\r?\n/, '');
 const validationSource = readFileSync('src/core/formats/btlValidation.ts', 'utf8').replace(/^import .*\r?\n/, '').replace(/export interface[\s\S]*?\n}\r?\n\r?\n/, '').replace(/export /g, '');
@@ -163,6 +163,11 @@ test('extended bytes survive a no-op and project save; body edits cannot bypass 
   const bytes = Buffer.concat([body,trailer]);
   const parsed = reviveProject(JSON.parse(JSON.stringify(serializeProject(parseBtl(arrayBuffer(bytes))))));
   assert.deepEqual(Buffer.from(serializeBtl(parsed)), bytes);
+  assert.throws(() => assertOriginalBtl(parsed), /原版不接受/);
+  parsed.originalBodyLength = parsed.originalBytes.length;
+  assert.throws(() => assertOriginalBtl(parsed), /原版不接受/);
+  parsed.originalBodyLength = body.length;
+  assert.doesNotThrow(() => assertOriginalBtl(parseBtl(arrayBuffer(body))));
   parsed.legions[0].food++;
   assert.throws(() => serializeBtl(parsed), /Rewrite/);
 });

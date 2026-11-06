@@ -1,12 +1,18 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue'
+import { commanderFields, commanderFieldLabels } from '../core/editor/commanderFields'
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import Papa from 'papaparse'
 import { Users, Layers, ShieldCheck, Undo2, Redo2, Download, Upload, X, MousePointer2, Hand, Scan, RefreshCw, FileDown, Play, Trash2, Swords, Flag, GitBranch, Map, Library, MapPinned, Crosshair } from 'lucide-vue-next'
 import CountryPanel from './CountryPanel.vue'
 import RewriteEventPanel from './RewriteEventPanel.vue'
+import StoryPanel from './StoryPanel.vue'
+import RuleWorkbench from './RuleWorkbench.vue'
+import ScenarioCreatePanel from './ScenarioCreatePanel.vue'
+import ExportInspectionPanel from './ExportInspectionPanel.vue'
 import type { BtlProject, BinProject } from '../core/formats/types'
 import { parseBtl } from '../core/formats/btl'
 import { parseBin } from '../core/formats/bin'
+import { describePlaces, type PlaceLabel } from '../core/editor/placeLabels'
 import { api, fromBase64, download, exportMod, type Overview, type Rule, type Preview, type ModPreview, type ScenarioView } from '../core/editor/api'
 
 const emit = defineEmits<{
@@ -17,13 +23,24 @@ const emit = defineEmits<{
   'jurisdiction-focus': [cell: number | null]
   legacy: []
   workspace: [library: boolean]
+  locate: [cell: number]
+  places: [labels: PlaceLabel[]]
 }>()
 const overview = ref<Overview | null>(null)
-const scenario = ref('conquest1')
+const toolbarElement = ref<HTMLElement | null>(null)
+const mapToolsElement = ref<HTMLElement | null>(null)
+const panelTop = ref(126)
+let layoutObserver: ResizeObserver | undefined
+function measureToolbar() { const element = mapToolsElement.value ?? toolbarElement.value; panelTop.value = element ? element.getBoundingClientRect().bottom + 10 : 126 }
+function observeToolbar() { layoutObserver?.disconnect(); for (const element of [toolbarElement.value, mapToolsElement.value]) if (element) layoutObserver?.observe(element); measureToolbar() }
+watch([toolbarElement, mapToolsElement], observeToolbar, { flush: 'post' })
+onMounted(() => { layoutObserver = new ResizeObserver(measureToolbar); observeToolbar() })
+onBeforeUnmount(() => layoutObserver?.disconnect())
+const scenario = ref(new URLSearchParams(location.search).get('scenario') || 'conquest1')
 const view = ref<ScenarioView | null>(null)
 const panel = ref('')
 const visitedContent = ref<string[]>([])
-watch(panel, key => { if (['countries', 'events'].includes(key) && !visitedContent.value.includes(key)) visitedContent.value.push(key) })
+watch(panel, key => { if (['countries', 'events', 'stories', 'rules'].includes(key) && !visitedContent.value.includes(key)) visitedContent.value.push(key) })
 const workspace = ref('map')
 const libraryTab = ref('commanders')
 const library = computed(() => workspace.value === 'library')
@@ -53,13 +70,30 @@ const rounding = ref('round')
 const targetCountry = ref('fra')
 const center = ref(-1)
 const jurisdictionTarget = ref(-1)
+const jurisdictionSearch = ref('')
 const pickingCenter = ref(false)
 const jurisdictionPreview = ref<Preview | null>(null)
 const jurisdictionData = computed(() => view.value?.jurisdictionEditing)
 const editableJurisdictionCells = computed(() => new Set(jurisdictionData.value?.editableCells ?? []))
 const jurisdictionSelection = computed(() => selectedCells.value.filter(cell => editableJurisdictionCells.value.has(cell)))
 const jurisdictionSignature = () => JSON.stringify([overview.value?.revision, scenario.value, jurisdictionTarget.value, selectedCells.value, panel.value, workspace.value])
-const jurisdictionKinds: Record<string, string> = { city: '城市', industry: '工厂', stable: '马厩' }
+const places = computed(() => {
+  const countries = overview.value?.countries ?? []
+  const aliases = (view.value?.factions ?? []).map(f => ({
+    id: `${scenario.value}.faction.${f.index}.${f.id}`,
+    name: countries.find(c => c.id === f.id)?.name ?? f.id,
+  }))
+  return describePlaces(jurisdictionData.value?.centers ?? [], view.value?.mapWidth ?? 1, [...countries, ...aliases])
+})
+watch(places, labels => emit('places', labels), { immediate: true })
+const matchingPlaces = computed(() => {
+  const query = jurisdictionSearch.value.trim().toLowerCase()
+  return places.value.filter(c => c.cell === jurisdictionTarget.value || `${c.label} ${c.cell} ${c.countryName}`.toLowerCase().includes(query))
+})
+function centerLabel(cell: unknown) {
+  const number = Number(cell)
+  return number < 0 ? '无辖区' : places.value.find(c => c.cell === number)?.label ?? `地块 #${number}`
+}
 function jurisdictionLocal(cell: number) {
   const data = jurisdictionData.value, width = view.value?.mapWidth
   if (!data || !width) return -1
@@ -104,11 +138,11 @@ const referenceStatus = computed(() => {
   if (report.valid) return `引用校验通过 · ${report.byCell.length} 个关联地块`
   return `引用冲突 ${report.conflicts.length} 项 · ${report.byCell.length} 个关联地块`
 })
-const fieldLabels: Record<string, string> = { rank: '军衔', nobilityrank: '爵位', star: '星级', infantry: '步兵', cavalry: '骑兵', artillery: '炮兵', warship: '海军', fort: '要塞', business: '经济', movement: '移动', training: '训练', skill1: '技能槽 1', skill2: '技能槽 2', skill3: '技能槽 3', skill4: '技能槽 4', skillBinding: '注册技能绑定', item1: '装备槽 1', item2: '装备槽 2', price: '金钱', industry: '工业', food: '粮食', isNPC: 'AI 控制', camp: '阵营', armyType: '兵种', armyGrade: '等级', strengthNow: '当前兵力', strengthMax: '最大兵力', morale: '士气', commander: '携带将领', areaName: '城市 ID', constructionType: '建筑类型', constructionLevel: '建筑等级', constructionStyle: '建筑风格', capitalStyle: '首都风格', installationType: '设施类型', strongPoint: '据点标记', owner: '领土归属', center: '辖区中心' }
+const fieldLabels: Record<string, string> = { ...commanderFieldLabels, skillBinding: '注册技能绑定', price: '金钱', industry: '工业', food: '粮食', isNPC: 'AI 控制', camp: '阵营', armyType: '兵种', armyGrade: '等级', strengthNow: '当前兵力', strengthMax: '最大兵力', morale: '士气', commander: '携带将领', areaName: '城市 ID', constructionType: '建筑类型', constructionLevel: '建筑等级', constructionStyle: '建筑风格', capitalStyle: '首都风格', installationType: '设施类型', strongPoint: '据点标记', owner: '领土归属', center: '辖区中心' }
 const domains: Record<string, string> = { commanders: '将领定义', factions: '国家资源', armies: '剧本部队', builds: '城市设施', territory: '领土归属', jurisdictions: '手工辖区' }
 const editableDomains = computed(() => Object.fromEntries(Object.entries(domains).filter(([key]) => library.value || key !== 'commanders')))
 const fields: Record<string, string[]> = {
-  commanders: ['rank','nobilityrank','star','infantry','cavalry','artillery','warship','fort','business','movement','training','skill1','skill2','skill3','skill4','item1','item2','skillBinding'],
+  commanders: [...commanderFields, 'skillBinding'],
   factions: ['price','industry','food','isNPC','camp'], armies: ['armyType','armyGrade','strengthNow','strengthMax','training','movement','morale','commander'],
   builds: ['areaName','constructionType','constructionLevel','constructionStyle','capitalStyle','installationType','strongPoint'], territory: ['owner'], jurisdictions: ['center'],
 }
@@ -148,7 +182,7 @@ async function refresh() {
 }
 function togglePanel(key: string) {
   panel.value = library.value ? key : panel.value === key ? '' : key
-  if (['commanders', 'countries', 'events'].includes(key)) libraryTab.value = key
+  if (['commanders', 'countries', 'events', 'stories', 'rules'].includes(key)) libraryTab.value = key
   if (key === 'commanders') domain.value = 'commanders'
   if (key === 'jurisdictions' && panel.value === key) { jurisdictionLayer.value = true; selectionMode.value = 'point' }
 }
@@ -256,6 +290,15 @@ async function validateProject() {
   const result = await api<{ scenarios: number }>('validate', {})
   notice.value = `${result.scenarios} 个剧本验证通过`
 }
+async function createScenario(request: { id: string; mapId: number; template: string }) {
+  if (!overview.value) return
+  await api('new-scenario', { revision: overview.value.revision, ...request })
+  scenario.value = request.id
+  selectedScenarios.value = [request.id]; rules.value = []
+  await refresh()
+  panel.value = 'batch'; domain.value = 'territory'; field.value = 'owner'
+  notice.value = '空白剧本已创建，可分配领土；请完成部署后检查导出文件'
+}
 async function packageProject() {
   if (!overview.value) return
   await exportMod({ revision: overview.value.revision, id: modId.value, name: modName.value, version: modVersion.value, scenario: scenario.value, scope: exportScope.value, layout: resourceLayout.value },
@@ -321,19 +364,20 @@ onMounted(() => run(refresh))
 </script>
 
 <template>
-  <header class="rewrite-toolbar">
+  <header ref="toolbarElement" class="rewrite-toolbar">
     <strong>EW4 <span>Rewrite Mod 编辑器</span></strong>
     <select v-model="scenario" aria-label="当前剧本" :disabled="busy" @change="run(loadScenario)"><option v-for="s in overview?.scenarios" :key="s.id" :value="s.id">{{ s.name }} · {{ s.id }}{{ s.modified ? ' *' : '' }}</option></select>
+    <button :disabled="busy || !overview" @click="switchWorkspace('map'); panel = 'new'">新建剧本</button>
     <nav class="view-tabs" aria-label="工作区"><button :class="{ active: !library }" @click="switchWorkspace('map')"><Map :size="16" />地图编辑</button><button :class="{ active: library }" @click="switchWorkspace('library')"><Library :size="16" />内容编辑</button></nav>
     <div v-if="!library" class="view-tabs"><button v-for="(label, key) in { armies: '部队', jurisdictions: '辖区', batch: '批处理', export: '验证导出' }" :key="key" :class="{ active: panel === key }" @click="togglePanel(key)"><component :is="key === 'armies' ? Swords : key === 'jurisdictions' ? MapPinned : key === 'batch' ? Layers : ShieldCheck" :size="16" />{{ label }}</button></div>
     <button title="撤销整批" :disabled="busy || !overview?.canUndo" @click="run(() => history('undo'))"><Undo2 :size="18" /></button>
     <button title="重做整批" :disabled="busy || !overview?.canRedo" @click="run(() => history('redo'))"><Redo2 :size="18" /></button>
     <span class="revision">r{{ overview?.revision ?? 0 }}</span>
     <button title="刷新工程" :disabled="busy" @click="run(refresh)"><RefreshCw :size="16" /></button>
-    <button class="legacy" @click="emit('legacy')">原版示例</button>
+    <nav class="legacy view-tabs" aria-label="游戏版本"><button :disabled="busy" aria-pressed="false" @click="emit('legacy')">原版</button><button class="active" aria-pressed="true">R 版</button></nav>
   </header>
-  <nav v-if="library" class="content-tabs" aria-label="内容分类"><button v-for="(label, key) in { commanders: '将领', countries: '国家', events: '事件树', batch: '批处理', export: '验证导出' }" :key="key" :class="{ active: panel === key }" @click="togglePanel(key)"><component :is="key === 'commanders' ? Users : key === 'countries' ? Flag : key === 'events' ? GitBranch : key === 'batch' ? Layers : ShieldCheck" :size="16" />{{ label }}</button></nav>
-  <div v-if="!library" class="map-tools">
+  <nav v-if="library" class="content-tabs" aria-label="内容分类"><button v-for="(label, key) in { commanders: '将领', countries: '国家', events: '事件树', stories: '剧情', rules: '扩展规则', batch: '批处理', export: '验证导出' }" :key="key" :class="{ active: panel === key }" @click="togglePanel(key)"><component :is="key === 'commanders' ? Users : key === 'countries' ? Flag : key === 'events' ? GitBranch : key === 'stories' ? Play : key === 'batch' || key === 'rules' ? Layers : ShieldCheck" :size="16" />{{ label }}</button></nav>
+  <div v-if="!library" ref="mapToolsElement" class="map-tools">
     <button v-for="(icon, key) in { pan: Hand, point: MousePointer2, rectangle: Scan }" :key="key" :class="{ active: selectionMode === key }" :disabled="busy" :title="key === 'pan' ? '平移' : key === 'point' ? '点选' : '矩形选区：两个角点'" @click="selectionMode = key; rectangleStart = null"><component :is="icon" :size="18" /></button>
     <span>{{ selectedCells.length }} 格{{ rectangleStart ? ' · 待选终点' : '' }}</span>
     <button title="清空选区" :disabled="busy" @click="selectedCells = []; rectangleStart = null; emit('selection', [])"><X :size="16" /></button>
@@ -342,19 +386,23 @@ onMounted(() => run(refresh))
     <span v-if="view" class="reference-status" :class="{ invalid: !view.reverseReferences.valid }" :title="view.reverseReferences.conflicts.map(c => c.detail).join('\n')">{{ referenceStatus }}</span>
   </div>
   <div v-if="busy || error || notice" class="feedback" :class="{ error }" role="status">{{ busy ? '正在处理…' : error || notice }}</div>
-  <section v-if="overview" v-show="panel" :class="[library ? 'content-workspace' : 'author-panel', { 'jurisdiction-panel': !library && panel === 'jurisdictions' }]" :aria-busy="busy">
-    <div class="panel-heading"><h2>{{ panel === 'commanders' ? '将领定义' : panel === 'countries' ? '国家定义' : panel === 'events' ? '事件树' : panel === 'armies' ? '剧本部队' : panel === 'jurisdictions' ? '辖区编辑' : panel === 'batch' ? '批处理' : '验证与导出' }}</h2><span>{{ overview?.files.length ?? 0 }} 个覆盖文件</span><button v-if="!library" title="关闭面板" @click="panel = ''"><X :size="18" /></button></div>
+  <section v-if="overview" v-show="panel" :style="library ? undefined : { top: panelTop + 'px' }" :class="[library ? 'content-workspace' : 'author-panel', { 'jurisdiction-panel': !library && panel === 'jurisdictions' }]" :aria-busy="busy">
+    <div class="panel-heading"><h2>{{ panel === 'new' ? '新建剧本' : panel === 'rules' ? '扩展规则' : panel === 'stories' ? '剧情' : panel === 'commanders' ? '将领定义' : panel === 'countries' ? '国家定义' : panel === 'events' ? '事件树' : panel === 'armies' ? '剧本部队' : panel === 'jurisdictions' ? '辖区编辑' : panel === 'batch' ? '批处理' : '验证与导出' }}</h2><span>{{ overview?.files.length ?? 0 }} 个覆盖文件</span><button v-if="!library" title="关闭面板" @click="panel = ''"><X :size="18" /></button></div>
+    <ScenarioCreatePanel v-if="panel === 'new'" :overview="overview" :scenario="scenario" :busy="busy" @create="request => run(() => createScenario(request))" />
+    <StoryPanel v-if="visitedContent.includes('stories')" v-show="panel === 'stories'" :revision="overview.revision" :scenario="scenario" @applied="run(refresh)" />
+    <RuleWorkbench v-if="visitedContent.includes('rules')" v-show="panel === 'rules'" :revision="overview.revision" :disabled="busy" @changed="run(refresh)" />
     <div v-if="panel === 'jurisdictions'" class="panel-body jurisdiction-editor">
       <p v-if="!jurisdictionData?.supported" role="status">当前剧本未启用领土辖区规则。</p>
       <template v-else>
         <div class="jurisdiction-summary">{{ scenario }} · {{ view?.jurisdictions ? '手工辖区 JURI' : '自动划分' }}</div>
-        <label>目标辖区<select v-model.number="jurisdictionTarget" aria-label="目标辖区中心" :disabled="busy"><option :value="-1">无辖区（移出选中地块）</option><option v-for="c in jurisdictionData.centers" :key="c.cell" :value="c.cell">{{ c.name || jurisdictionKinds[c.kind] }} · {{ c.cell }} · {{ jurisdictionKinds[c.kind] }}</option></select></label>
-        <div class="actions"><button title="从地图拾取辖区中心" :aria-pressed="pickingCenter" :class="{ active: pickingCenter }" :disabled="busy" @click="pickingCenter = !pickingCenter"><Crosshair :size="16" /></button><button title="选中该辖区的可编辑地块" :disabled="busy || pickingCenter" @click="selectJurisdiction"><Scan :size="16" />选中此辖区</button></div>
+        <input v-model="jurisdictionSearch" type="search" aria-label="搜索辖区" placeholder="城市、附近城市、势力或格号" />
+        <label>目标辖区<select v-model.number="jurisdictionTarget" aria-label="目标辖区中心" :disabled="busy"><option :value="-1">无辖区（移出选中地块）</option><option v-for="c in matchingPlaces" :key="c.cell" :value="c.cell">{{ c.label }} · {{ c.countryName }} · #{{ c.cell }}</option></select></label>
+        <div class="actions"><button title="从地图拾取辖区中心" :aria-pressed="pickingCenter" :class="{ active: pickingCenter }" :disabled="busy" @click="pickingCenter = !pickingCenter"><Crosshair :size="16" /></button><button title="定位目标辖区" :disabled="busy || jurisdictionTarget < 0" @click="emit('locate', jurisdictionTarget)"><MapPinned :size="16" /></button><button title="选中该辖区的可编辑地块" :disabled="busy || pickingCenter" @click="selectJurisdiction"><Scan :size="16" />选中此辖区</button></div>
         <div v-if="pickingCenter" class="jurisdiction-summary" role="status">正在拾取辖区中心</div>
         <template v-else>
           <div class="jurisdiction-summary">已选 {{ selectedCells.length }} 格 · 可修改 {{ jurisdictionSelection.length }} 格<span v-if="selectedCells.length !== jurisdictionSelection.length"> · 略过中心、海格或港口 {{ selectedCells.length - jurisdictionSelection.length }} 格</span></div>
           <div class="actions"><button :disabled="busy || !jurisdictionSelection.length" @click="run(previewJurisdiction)"><Play :size="16" />预览辖区修改</button><button v-if="jurisdictionPreview" title="取消辖区预览" :disabled="busy" @click="clearJurisdictionPreview"><X :size="16" /></button><button v-if="jurisdictionPreview" :disabled="busy || !jurisdictionPreview.count" @click="run(applyJurisdiction)">应用辖区修改</button></div>
-          <template v-if="jurisdictionPreview"><div class="jurisdiction-summary">预览 · {{ jurisdictionPreview.changes.filter(c => c.field === 'jurisdictions').length }} 格变化</div><div class="table-scroll jurisdiction-diff"><table><thead><tr><th>地块</th><th>原中心</th><th>新中心</th></tr></thead><tbody><tr v-for="change in jurisdictionPreview.changes.filter(c => c.field === 'jurisdictions').slice(0, 100)" :key="change.object"><td>{{ change.object.slice(5) }}</td><td>{{ change.before }}</td><td>{{ change.after }}</td></tr></tbody></table></div></template>
+          <template v-if="jurisdictionPreview"><div class="jurisdiction-summary">预览 · {{ jurisdictionPreview.changes.filter(c => c.field === 'jurisdictions').length }} 格变化</div><div class="table-scroll jurisdiction-diff"><table><thead><tr><th>地块</th><th>原辖区</th><th>新辖区</th></tr></thead><tbody><tr v-for="change in jurisdictionPreview.changes.filter(c => c.field === 'jurisdictions').slice(0, 100)" :key="change.object"><td>{{ change.object.slice(5) }}</td><td>{{ centerLabel(change.before) }}</td><td>{{ centerLabel(change.after) }}</td></tr></tbody></table></div></template>
         </template>
       </template>
     </div>
@@ -397,6 +445,7 @@ onMounted(() => run(refresh))
     <div v-else-if="panel === 'export'" class="panel-body export-panel">
       <dl><dt>基础资源</dt><dd>{{ overview?.baseline }}</dd><dt>工程 ID</dt><dd>{{ overview?.id }}</dd><dt>修订</dt><dd>{{ overview?.revision }}</dd></dl>
       <div class="actions"><button :disabled="busy" @click="run(validateProject)"><ShieldCheck :size="16" />完整校验</button><button :disabled="busy" @click="run(saveAuthor)"><Download :size="16" />作者工程</button><button :disabled="busy" @click="importRef?.click()"><Upload :size="16" />恢复工程</button><input ref="importRef" hidden type="file" accept=".ew4author" @change="run(() => restoreAuthor($event))" /></div>
+      <ExportInspectionPanel />
       <h3>导入内容包</h3>
       <div class="actions"><button :disabled="busy" @click="packageRef?.click()"><Upload :size="16" />选择 .ew4mod</button><span class="package-name">{{ packageFile?.name ?? '未选择文件' }}</span><input ref="packageRef" hidden type="file" accept=".ew4mod" @change="selectPackage" /></div>
       <label>导入方式<select v-model="importMode" :disabled="busy"><option value="merge">合并到当前工程</option><option value="replace">替换整个工程内容</option></select></label>
@@ -453,4 +502,8 @@ input[type=number] { width:95px; }input[type=checkbox] { min-height:auto; accent
 .preview-heading { display:flex; justify-content:space-between; align-items:center; font-size:13px; }.export-panel>label { font-size:12px; display:flex; flex-direction:column; gap:6px; max-width:380px; }.export-panel dl { margin:0; font-size:12px; user-select:text; }.export-panel dt { color:#6a7870; margin-bottom:4px; }.export-panel dd { margin:0 0 12px; overflow-wrap:anywhere; }.export-button { align-self:flex-start; }.file-list { font-size:12px; margin:0; padding-left:18px; user-select:text; overflow-wrap:anywhere; }
 .export-panel h3 { margin:8px 0 0; font-size:14px; }.package-name { font-size:12px; overflow-wrap:anywhere; min-width:0; }.import-diff { max-height:220px; flex:none; }.import-diff td { max-width:230px; white-space:normal; overflow-wrap:anywhere; }.export-panel p { margin:0; font-size:12px; overflow-wrap:anywhere; }
 @media(max-width:800px) { .rewrite-toolbar { padding:7px; gap:5px; }.rewrite-toolbar strong { width:100%; }.rewrite-toolbar select { flex:1; max-width:100%; }.view-tabs { order:2; }.legacy { font-size:11px; }.author-panel { top:220px; bottom:8px; right:8px; width:calc(100% - 16px); }.map-tools { top:150px; left:8px; }.panel-body { padding:9px; }.scenario-picker>div { grid-template-columns:repeat(2,minmax(0,1fr)); }.commanders-table { min-height:120px; }.rule-controls>* { flex:1; }.rule-controls button { flex-basis:100%; } }
+</style>
+<style scoped>
+@media(max-width:800px){.rewrite-toolbar>select{flex:1 0 calc(100% - 100px);max-width:100%}}
+.map-tools{position:relative;top:auto;left:auto;flex-shrink:0;margin:6px 12px;max-width:calc(100% - 24px);width:max-content}
 </style>

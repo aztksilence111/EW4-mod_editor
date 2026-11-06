@@ -85,7 +85,7 @@ internal static class PresentationResources
     {
         var existing = (TryRead(read, "client/countries.json") ?? JsonNode.Parse(Encoding.UTF8.GetString(baselineRead("client/countries.json")))!).AsObject();
         var existingCountries = existing["countries"]?.AsObject() ?? new JsonObject();
-        var catalog = ModFiles.Object(read("legacy/catalog.json"));
+        var catalog = AuthorCatalog.Read(read);
         var variants = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
         foreach (var country in ModFiles.Xml(read("original/def_army.xml")).Root!.Elements())
         {

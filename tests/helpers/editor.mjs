@@ -4,6 +4,7 @@ import { createServer } from 'node:net';
 import { resolve, join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import assert from 'node:assert/strict';
+import { editorHome } from '../../tools/editor-home.mjs';
 
 export const root = resolve(import.meta.dirname, '../..');
 export const dll = resolve(root, process.env.EW4_EDITOR_TEST_DLL ?? 'bridge/bin/Debug/net10.0/Ew4.Editor.dll');
@@ -31,8 +32,9 @@ export async function startEditor(port, label, existingHome) {
   const home = existingHome ?? join(root, '.local/tests', `${label}-${crypto.randomUUID()}`);
   if (!existingHome) {
     mkdirSync(home, { recursive: true });
-    copyFileSync(join(root, '.local/baseline.json'), join(home, 'baseline.json'));
-    symlinkSync(join(root, '.local/rewrite'), join(home, 'rewrite'), 'junction');
+    const baselineHome = editorHome(root);
+    copyFileSync(join(baselineHome, 'baseline.json'), join(home, 'baseline.json'));
+    symlinkSync(join(baselineHome, 'rewrite'), join(home, 'rewrite'), 'junction');
   }
   const child = spawn('dotnet', [dll], { cwd: root, env: { ...process.env, EW4_EDITOR_HOME: home, EW4_EDITOR_PORT: String(port) }, stdio: ['ignore', 'pipe', 'pipe'] });
   let logs = '';

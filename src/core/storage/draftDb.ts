@@ -8,6 +8,7 @@ export interface DraftRecord {
   selectedTile: { x: number; y: number } | null
   sourceName: string
   savedAt: number
+  originalCommanderXml?: string
 }
 
 function openDb(): Promise<IDBDatabase> {

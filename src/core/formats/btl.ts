@@ -265,6 +265,12 @@ class Writer {
   }
 }
 
+export function assertOriginalBtl(p: BtlProject): void {
+  const actual = p.originalBytes?.length ? parseBtl(new Uint8Array(p.originalBytes).buffer) : null
+  if (actual && actual.originalBytes!.length > actual.originalBodyLength!)
+    throw new Error('此 BTL 含 R 版扩展块，请切换到 R 版工程；原版不接受扩展块')
+}
+
 export function serializeBtl(p: BtlProject): ArrayBuffer {
   // Rewrite skips negative sites, but rejects tombstones in these sections.
   for (const [name, rows] of [['部队', p.armies], ['商店', p.shops], ['酒馆', p.bars], ['火焰', p.fires]] as const) {
