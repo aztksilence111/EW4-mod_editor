@@ -1,10 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
-    <Version>0.4.1</Version>
+    <Version>0.4.2</Version>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <RewriteSnapshot Condition="'$(RewriteSnapshot)' == '' And Exists('$(MSBuildProjectDirectory)/../.local/r3-20261111/baseline.json')">$(MSBuildProjectDirectory)/../.local/r3-20261111/rewrite</RewriteSnapshot>
     <RewriteSnapshot Condition="'$(RewriteSnapshot)' == '' And Exists('$(MSBuildProjectDirectory)/../.local/r3-20261107/baseline.json')">$(MSBuildProjectDirectory)/../.local/r3-20261107/rewrite</RewriteSnapshot>
     <RewriteSnapshot Condition="'$(RewriteSnapshot)' == '' And Exists('$(MSBuildProjectDirectory)/../.local/r3/baseline.json')">$(MSBuildProjectDirectory)/../.local/r3/rewrite</RewriteSnapshot>
     <RewriteSnapshot Condition="'$(RewriteSnapshot)' == ''">$(MSBuildProjectDirectory)/../.local/rewrite</RewriteSnapshot>

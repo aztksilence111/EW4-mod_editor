@@ -30,7 +30,7 @@ public sealed class MainActivity : Activity
         SetContentView(loading);
         try
         {
-            string editorHome = Path.Combine(FilesDir!.AbsolutePath, "r3-20261107");
+            string editorHome = Path.Combine(FilesDir!.AbsolutePath, "r3-20261111");
             await Task.Run(() =>
             {
                 // Copy bundled baseline once; author.json is never overwritten on restart.

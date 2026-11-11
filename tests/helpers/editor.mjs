@@ -13,6 +13,8 @@ export async function stopProcess(child) {
   if (!child.pid) return;
   if (process.platform === 'win32') {
     spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore' });
+    if (child.exitCode === null && child.signalCode === null)
+      await Promise.race([new Promise(resolve => child.once('exit', resolve)), delay(5000)]);
     return;
   }
   if (child.exitCode !== null || child.signalCode !== null) return;
@@ -32,7 +34,7 @@ export async function startEditor(port, label, existingHome) {
   const home = existingHome ?? join(root, '.local/tests', `${label}-${crypto.randomUUID()}`);
   if (!existingHome) {
     mkdirSync(home, { recursive: true });
-    const baselineHome = editorHome(root);
+    const baselineHome = resolve(process.env.EW4_EDITOR_TEST_BASE || editorHome(root));
     copyFileSync(join(baselineHome, 'baseline.json'), join(home, 'baseline.json'));
     symlinkSync(join(baselineHome, 'rewrite'), join(home, 'rewrite'), 'junction');
   }

@@ -6,15 +6,15 @@
     <Nullable>enable</Nullable>
     <ApplicationId>org.ew4.modeditor</ApplicationId>
     <ApplicationTitle>EW4 Mod 编辑器</ApplicationTitle>
-    <ApplicationVersion>4</ApplicationVersion>
-    <ApplicationDisplayVersion>0.4.1</ApplicationDisplayVersion>
+    <ApplicationVersion>5</ApplicationVersion>
+    <ApplicationDisplayVersion>0.4.2</ApplicationDisplayVersion>
     <SupportedOSPlatformVersion>26</SupportedOSPlatformVersion>
     <RuntimeIdentifier>android-arm64</RuntimeIdentifier>
     <AndroidPackageFormats>apk</AndroidPackageFormats>
     <PublishTrimmed>false</PublishTrimmed>
     <RunAOTCompilation>false</RunAOTCompilation>
     <AndroidEnableMarshalMethods>false</AndroidEnableMarshalMethods>
-    <RewriteSnapshot Condition="'$(RewriteSnapshot)' == ''">$(MSBuildProjectDirectory)/../.local/r3-20261107/rewrite</RewriteSnapshot>
+    <RewriteSnapshot Condition="'$(RewriteSnapshot)' == ''">$(MSBuildProjectDirectory)/../.local/r3-20261111/rewrite</RewriteSnapshot>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="$(RewriteSnapshot)/Ew4.Client/Ew4.Client.csproj" />

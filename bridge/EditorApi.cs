@@ -28,6 +28,7 @@ public sealed class EditorApi(AuthorEngine engine)
                 return path switch
                 {
                     "project" => Data(engine.Overview()),
+                    "unit-types" => Data(engine.UnitTypes()),
                     "maps" => Data(engine.Maps()),
                     "rules" => Data(engine.Rules()),
                     "rule-file" => Data(engine.RuleFile(Q("path"))),
@@ -43,6 +44,8 @@ public sealed class EditorApi(AuthorEngine engine)
             return path switch
             {
                 "preview" => Data(engine.Preview(Read<BatchRequest>())),
+                "unit-types-preview" => Data(engine.PreviewUnitTypes(Read<UnitTypesRequest>())),
+                "unit-types-deploy-preview" => Data(engine.PreviewUnitTypeDeployment(Read<UnitTypeDeploymentRequest>())),
                 "csv-preview" => Data(engine.PreviewCsv(Read<CsvRequest>())),
                 "countries-preview" => Data(engine.PreviewCountries(Read<CountriesRequest>())),
                 "events-preview" => Data(engine.PreviewEvents(Read<EventsRequest>())),

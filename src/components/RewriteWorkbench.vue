@@ -4,6 +4,7 @@ import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import Papa from 'papaparse'
 import { Users, Layers, ShieldCheck, Undo2, Redo2, Download, Upload, X, MousePointer2, Hand, Scan, RefreshCw, FileDown, Play, Trash2, Swords, Flag, GitBranch, Map, Library, MapPinned, Crosshair } from 'lucide-vue-next'
 import CountryPanel from './CountryPanel.vue'
+import UnitTypePanel from './UnitTypePanel.vue'
 import RewriteEventPanel from './RewriteEventPanel.vue'
 import StoryPanel from './StoryPanel.vue'
 import RuleWorkbench from './RuleWorkbench.vue'
@@ -40,7 +41,7 @@ const scenario = ref(new URLSearchParams(location.search).get('scenario') || 'co
 const view = ref<ScenarioView | null>(null)
 const panel = ref('')
 const visitedContent = ref<string[]>([])
-watch(panel, key => { if (['countries', 'events', 'stories', 'rules'].includes(key) && !visitedContent.value.includes(key)) visitedContent.value.push(key) })
+watch(panel, key => { if (['countries', 'unit-types', 'events', 'stories', 'rules'].includes(key) && !visitedContent.value.includes(key)) visitedContent.value.push(key) })
 const workspace = ref('map')
 const libraryTab = ref('commanders')
 const library = computed(() => workspace.value === 'library')
@@ -182,7 +183,7 @@ async function refresh() {
 }
 function togglePanel(key: string) {
   panel.value = library.value ? key : panel.value === key ? '' : key
-  if (['commanders', 'countries', 'events', 'stories', 'rules'].includes(key)) libraryTab.value = key
+  if (['commanders', 'countries', 'unit-types', 'events', 'stories', 'rules'].includes(key)) libraryTab.value = key
   if (key === 'commanders') domain.value = 'commanders'
   if (key === 'jurisdictions' && panel.value === key) { jurisdictionLayer.value = true; selectionMode.value = 'point' }
 }
@@ -376,7 +377,7 @@ onMounted(() => run(refresh))
     <button title="刷新工程" :disabled="busy" @click="run(refresh)"><RefreshCw :size="16" /></button>
     <nav class="legacy view-tabs" aria-label="游戏版本"><button :disabled="busy" aria-pressed="false" @click="emit('legacy')">原版</button><button class="active" aria-pressed="true">R 版</button></nav>
   </header>
-  <nav v-if="library" class="content-tabs" aria-label="内容分类"><button v-for="(label, key) in { commanders: '将领', countries: '国家', events: '事件树', stories: '剧情', rules: '扩展规则', batch: '批处理', export: '验证导出' }" :key="key" :class="{ active: panel === key }" @click="togglePanel(key)"><component :is="key === 'commanders' ? Users : key === 'countries' ? Flag : key === 'events' ? GitBranch : key === 'stories' ? Play : key === 'batch' || key === 'rules' ? Layers : ShieldCheck" :size="16" />{{ label }}</button></nav>
+  <nav v-if="library" class="content-tabs" aria-label="内容分类"><button v-for="(label, key) in { commanders: '将领', countries: '国家', 'unit-types': '兵种', events: '事件树', stories: '剧情', rules: '扩展规则', batch: '批处理', export: '验证导出' }" :key="key" :class="{ active: panel === key }" @click="togglePanel(key)"><component :is="key === 'commanders' ? Users : key === 'countries' ? Flag : key === 'unit-types' ? Swords : key === 'events' ? GitBranch : key === 'stories' ? Play : key === 'batch' || key === 'rules' ? Layers : ShieldCheck" :size="16" />{{ label }}</button></nav>
   <div v-if="!library" ref="mapToolsElement" class="map-tools">
     <button v-for="(icon, key) in { pan: Hand, point: MousePointer2, rectangle: Scan }" :key="key" :class="{ active: selectionMode === key }" :disabled="busy" :title="key === 'pan' ? '平移' : key === 'point' ? '点选' : '矩形选区：两个角点'" @click="selectionMode = key; rectangleStart = null"><component :is="icon" :size="18" /></button>
     <span>{{ selectedCells.length }} 格{{ rectangleStart ? ' · 待选终点' : '' }}</span>
@@ -387,10 +388,11 @@ onMounted(() => run(refresh))
   </div>
   <div v-if="busy || error || notice" class="feedback" :class="{ error }" role="status">{{ busy ? '正在处理…' : error || notice }}</div>
   <section v-if="overview" v-show="panel" :style="library ? undefined : { top: panelTop + 'px' }" :class="[library ? 'content-workspace' : 'author-panel', { 'jurisdiction-panel': !library && panel === 'jurisdictions' }]" :aria-busy="busy">
-    <div class="panel-heading"><h2>{{ panel === 'new' ? '新建剧本' : panel === 'rules' ? '扩展规则' : panel === 'stories' ? '剧情' : panel === 'commanders' ? '将领定义' : panel === 'countries' ? '国家定义' : panel === 'events' ? '事件树' : panel === 'armies' ? '剧本部队' : panel === 'jurisdictions' ? '辖区编辑' : panel === 'batch' ? '批处理' : '验证与导出' }}</h2><span>{{ overview?.files.length ?? 0 }} 个覆盖文件</span><button v-if="!library" title="关闭面板" @click="panel = ''"><X :size="18" /></button></div>
+    <div class="panel-heading"><h2>{{ panel === 'unit-types' ? '独立兵种' : panel === 'new' ? '新建剧本' : panel === 'rules' ? '扩展规则' : panel === 'stories' ? '剧情' : panel === 'commanders' ? '将领定义' : panel === 'countries' ? '国家定义' : panel === 'events' ? '事件树' : panel === 'armies' ? '剧本部队' : panel === 'jurisdictions' ? '辖区编辑' : panel === 'batch' ? '批处理' : '验证与导出' }}</h2><span>{{ overview?.files.length ?? 0 }} 个覆盖文件</span><button v-if="!library" title="关闭面板" @click="panel = ''"><X :size="18" /></button></div>
     <ScenarioCreatePanel v-if="panel === 'new'" :overview="overview" :scenario="scenario" :busy="busy" @create="request => run(() => createScenario(request))" />
     <StoryPanel v-if="visitedContent.includes('stories')" v-show="panel === 'stories'" :revision="overview.revision" :scenario="scenario" @applied="run(refresh)" />
     <RuleWorkbench v-if="visitedContent.includes('rules')" v-show="panel === 'rules'" :revision="overview.revision" :disabled="busy" @changed="run(refresh)" />
+    <div v-if="visitedContent.includes('unit-types')" v-show="panel === 'unit-types'" class="panel-body"><UnitTypePanel :overview="overview" :scenario="scenario" :view="view" :cells="selectedCells" :disabled="busy" @changed="run(refresh)" /></div>
     <div v-if="panel === 'jurisdictions'" class="panel-body jurisdiction-editor">
       <p v-if="!jurisdictionData?.supported" role="status">当前剧本未启用领土辖区规则。</p>
       <template v-else>

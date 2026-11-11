@@ -48,7 +48,7 @@ if (action === 'inspect') {
     for await (const chunk of createReadStream(path)) hash.update(chunk);
     if (statSync(path).size !== file.bytes || hash.digest('hex') !== file.sha256) throw Error('Artifact checksum mismatch: ' + file.name);
   }
-  const tag = 'v' + version + '-20261107';
+  const tag = 'v' + version + '-' + (process.env.EW4_RELEASE_DATE || '20261111');
   const releases = await request('/repos/' + repo + '/releases?per_page=30');
   let release = releases.find(p => p.tag_name === tag);
   if (action === 'publish') {

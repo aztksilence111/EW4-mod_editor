@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { startEditor, snapshot } from './helpers/editor.mjs';
+import { editorHome } from '../tools/editor-home.mjs';
 const editor = await startEditor(5347, 'latest-rules');
 const examples = JSON.parse(readFileSync('public/rule-examples.json'));
 const checks = [];
@@ -12,7 +13,7 @@ try {
   await editor.request('restore', { revision: original.revision, document: JSON.stringify({ ...original, scenarios: ['conquest1'] }) });
   const initial = await editor.request('author');
   const rules = await editor.request('rules');
-  assert.equal(rules.apiVersion, 3); assert(rules.engineSource.startsWith('47f8067')); checks.push('latest engine identity');
+  assert.equal(rules.apiVersion, 3); assert.equal(rules.engineSource, JSON.parse(readFileSync(editorHome(process.cwd()) + '/baseline.json')).commit); checks.push('latest engine identity');
   for (const module of rules.modules) {
     const manifest = { ...rules.manifest, schema: 1, apiVersion: 3, [module.key]: ['skills', 'statuses'].includes(module.key) ? [module.path] : module.path };
     await preview({ 'rewrite/extension.json': encode(manifest), [module.path]: encode(module.initial) });
