@@ -39,9 +39,9 @@
 - 适配新版拆分式 `legacy/catalog.json`（schema 3），将领修改保留拆分结构，也支持旧 schema 2 基线。
 - Android APK 是编辑器本身，包名 `org.ew4.modeditor`，与游戏独立。手机本地运行同一作者引擎，通过系统 ZIP / 文件夹选择和另存窗口导入导出，不依赖电脑服务。最低 Android 8，当前交付 ARM64。
 
-本地交付位于 `release/0.4.1/`：`ew4-mod-editor-0.4.1-windows-web.zip`、`ew4-mod-editor-0.4.1-arm64.apk`、`manifest.json`、`verification.json` 和 `SHA256SUMS.txt`。Windows 解压后运行 `Start-Editor.cmd`，无需另外安装 Node / .NET；关闭服务窗口即可退出。端口冲突可在启动前设置 `EW4_EDITOR_PORT`。APK 使用开发签名，尚未完成真机安装及 Android 系统文件窗口验收。
+本地交付位于 `release/0.4.2-20261111/`：[GitHub 下载](https://github.com/aztksilence111/EW4-mod_editor/releases/tag/v0.4.2-20261111)，包含 `ew4-mod-editor-0.4.2-windows-web.zip`、`ew4-mod-editor-0.4.2-arm64.apk`、`manifest.json`、`verification.json` 和 `SHA256SUMS.txt`。Windows 解压后运行 `Start-Editor.cmd`，无需另外安装 Node / .NET；关闭服务窗口即可退出。端口冲突可在启动前设置 `EW4_EDITOR_PORT`。APK 沿用原开发签名，尚未完成真机安装及 Android 系统文件窗口验收。
 
-已有工作目录运行 `npm run setup:latest`，在 `.local/r3-20261107` 固定当前 R 源码和资源，旧基线及作者草稿保留。新旧基线指纹不同，旧 `.ew4author` 不会自动覆盖新版工程。开发启动和打包优先使用 `.local/r3-20261107`；可以通过 `EW4_EDITOR_HOME` 选择资源相符的作者目录。
+已有工作目录运行 `npm run setup:latest`，在 `.local/r3-20261111` 固定当前 R 源码和资源，旧基线及作者草稿保留。新旧基线指纹不同，旧 `.ew4author` 不会自动覆盖新版工程。开发启动和打包优先使用 `.local/r3-20261111`；可以通过 `EW4_EDITOR_HOME` 选择资源相符的作者目录。
 
 开发验证：`npm test`、`npm run test:rules`、`npm run test:browser:rules`、`npm run test:stories`；启动 5175 UI 后可运行 `npm run test:browser:stories`。`npm run package:editors` 从固定基线重新构建双端包，Android SDK / JDK 可通过 `EW4_ANDROID_DOTNET`、`ANDROID_HOME`、`JAVA_HOME` 指定。
 
